@@ -1,0 +1,33 @@
+CREATORSIN — COMPLETE LAUNCHABLE MVP
+Domain: https://creators-in.com
+
+WHAT THIS BUILD INCLUDES
+- Public landing/login experience
+- Email/password account creation and login through Supabase
+- Google and Apple login buttons ready for provider setup
+- Creator, brand, and agency account types
+- Creator feed, discover, opportunities, messages, profile, notifications, settings
+- Working navigation, modals, searches, filters, likes, comments, follows, applications, messages, and profile tools
+- Responsive desktop/mobile design
+- Vercel-ready configuration
+
+IMPORTANT
+This is a complete launchable MVP, not a finished production-scale social network. Authentication and profiles use Supabase. Demo feed content and some dashboard interactions are client-side and will be expanded into fully persistent database features later.
+
+YOUR ONLY REMAINING STEPS
+1. Open config.js and replace YOUR_SUPABASE_ANON_KEY with your Supabase publishable key beginning sb_publishable_. Save the file.
+2. Upload EVERY file in this folder to the root of your GitHub repository. index.html must appear at the top level.
+3. Import the GitHub repository into Vercel, deploy, then add creators-in.com under Vercel Project Settings > Domains.
+
+SUPABASE AUTH URLS
+In Supabase > Authentication > URL Configuration, set:
+Site URL: https://creators-in.com
+Redirect URLs:
+https://creators-in.com
+https://www.creators-in.com
+https://*.vercel.app
+
+GOOGLE / APPLE
+The buttons are present. They will work after you enable each provider in Supabase Authentication > Providers and add the provider credentials.
+
+DO NOT PUT A SECRET OR SERVICE-ROLE KEY IN config.js.
