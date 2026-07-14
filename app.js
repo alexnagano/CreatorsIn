@@ -23,7 +23,11 @@ $('#logoutBtn').onclick=async()=>{await sb.auth.signOut();location.reload()};
 
 async function ensureProfile(){const md=user.user_metadata||{};await sb.from('profiles').upsert({id:user.id,email:user.email,full_name:md.full_name||md.name||user.email.split('@')[0],account_type:md.account_type||'creator',avatar_url:md.avatar_url||md.picture||null},{onConflict:'id'});const {data}=await sb.from('profiles').select('*').eq('id',user.id).single();profile=data}
 function syncIdentity(){if(!profile)return;$('#sideName').textContent=profile.full_name;$('#sideType').textContent=(profile.is_founder?'Founder · ':'')+(profile.account_type||'creator');$('#sideAvatar').src=profile.avatar_url||EMPTY}
-function setPage(page){$$('[data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===page));({feed,discover,connectionsPage,opportunitiesPage,messagesPage,profilePage}[page]||feed)()}
+function setPage(page){
+  $$('[data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===page));
+  const pages={feed,discover,connections:connectionsPage,opportunities:opportunitiesPage,messages:messagesPage,profile:profilePage};
+  (pages[page]||feed)();
+}
 $$('[data-page]').forEach(b=>b.onclick=()=>setPage(b.dataset.page));
 
 async function loadPosts(){const {data,error}=await sb.from('posts').select('id,user_id,content,created_at,profiles(full_name,account_type,avatar_url,is_verified,is_founder)').order('created_at',{ascending:false});if(error)throw error;return data||[]}
@@ -41,7 +45,24 @@ function renderRequestPreview(){const el=$('#requestPreview');if(!el)return;el.i
 $('#notificationsBtn').onclick=()=>setPage('connections');
 
 async function startConversation(otherId){const {data,error}=await sb.rpc('get_or_create_conversation',{other_user:otherId});if(error)return showToast(error.message);activeConversation=data;setPage('messages')}
-async function messagesPage(){await loadSocial();const accepted=connections.filter(c=>c.status==='accepted').map(c=>members.find(m=>m.id===(c.requester_id===user.id?c.addressee_id:c.requester_id))).filter(Boolean);const {data:convs}=await sb.from('conversation_members').select('conversation_id,conversations(id,updated_at),profiles:conversation_members_user_id_fkey(*)').eq('user_id',user.id);conversations=convs||[];main.innerHTML=`<div class="page-title"><div><h1>Messages</h1><p class="muted">Private messages with your connections.</p></div></div><section class="card thread-list"><div class="threads"><button class="secondary" id="newMessageBtn" style="width:100%;margin-bottom:10px">New message</button><div id="threadItems"></div></div><div class="chat" id="chatPanel"><div class="empty"><h2>Select a conversation</h2></div></div></section>`;$('#newMessageBtn').onclick=()=>modal('New message',accepted.length?accepted.map(m=>`<button class="secondary" data-start="${m.id}" style="width:100%;margin:5px 0">${esc(m.full_name)}</button>`).join(''):'<p class="muted">Connect with someone first.</p>');$$('[data-start]').forEach(b=>b.onclick=()=>{closeModal();startConversation(b.dataset.start)});await renderThreads();if(activeConversation)openConversation(activeConversation)}
+async function messagesPage(){
+  await loadSocial();
+  const {data:convs}=await sb.from('conversation_members').select('conversation_id,conversations(id,updated_at)').eq('user_id',user.id);
+  conversations=convs||[];
+  main.innerHTML=`<div class="page-title"><div><h1>Messages</h1><p class="muted">Send and receive private messages with any registered creator, business, or agency.</p></div></div><section class="card thread-list"><div class="threads"><button class="primary" id="newMessageBtn" style="width:100%;margin-bottom:10px">New message</button><div id="threadItems"></div></div><div class="chat" id="chatPanel"><div class="empty"><h2>Select a conversation</h2><p class="muted">Choose an existing conversation or start a new one.</p></div></div></section>`;
+  $('#newMessageBtn').onclick=()=>{
+    modal('New message',`<input class="field" id="messageMemberSearch" placeholder="Search creators, businesses, or agencies"><div id="messageMemberList" style="margin-top:10px;max-height:380px;overflow:auto"></div>`);
+    const draw=()=>{
+      const q=($('#messageMemberSearch').value||'').toLowerCase();
+      const found=members.filter(m=>(m.full_name+' '+(m.headline||'')+' '+(m.account_type||'')).toLowerCase().includes(q));
+      $('#messageMemberList').innerHTML=found.length?found.map(m=>`<button class="secondary" data-start="${m.id}" style="width:100%;margin:5px 0;text-align:left;display:flex;align-items:center;gap:10px"><img class="avatar" src="${esc(m.avatar_url||EMPTY)}"><span><strong>${esc(m.full_name)}</strong><br><small class="muted">${esc(m.headline||m.account_type||'member')}</small></span></button>`).join(''):'<p class="muted">No members found.</p>';
+      $$('[data-start]').forEach(b=>b.onclick=()=>{closeModal();startConversation(b.dataset.start)});
+    };
+    $('#messageMemberSearch').oninput=draw;draw();
+  };
+  await renderThreads();
+  if(activeConversation)openConversation(activeConversation)
+}
 async function renderThreads(){const {data}=await sb.from('conversation_members').select('conversation_id,conversations(id,updated_at)').eq('user_id',user.id);const rows=data||[];const items=[];for(const row of rows){const {data:others}=await sb.from('conversation_members').select('profiles:conversation_members_user_id_fkey(*)').eq('conversation_id',row.conversation_id).neq('user_id',user.id).limit(1);items.push({id:row.conversation_id,other:others?.[0]?.profiles})}$('#threadItems').innerHTML=items.length?items.map(i=>`<div class="thread" data-conversation="${i.id}"><strong>${esc(i.other?.full_name||'Conversation')}</strong><div class="muted">${esc(i.other?.headline||'')}</div></div>`).join(''):'<p class="muted">No conversations yet.</p>';$$('[data-conversation]').forEach(b=>b.onclick=()=>openConversation(b.dataset.conversation))}
 async function openConversation(id){activeConversation=id;const [{data:msgs},{data:others}]=await Promise.all([sb.from('messages').select('*,profiles(full_name,avatar_url)').eq('conversation_id',id).order('created_at'),sb.from('conversation_members').select('profiles:conversation_members_user_id_fkey(*)').eq('conversation_id',id).neq('user_id',user.id).limit(1)]);const other=others?.[0]?.profiles;$('#chatPanel').innerHTML=`<div class="chat-head"><strong>${esc(other?.full_name||'Conversation')}</strong></div><div class="chat-body" id="chatBody">${(msgs||[]).map(m=>`<div class="bubble ${m.sender_id===user.id?'me':''}">${esc(m.body)}</div>`).join('')}</div><div class="chat-compose"><input class="field" id="messageInput" placeholder="Write a message"><button class="primary" id="sendMessageBtn">Send</button></div>`;$('#sendMessageBtn').onclick=async()=>{const body=$('#messageInput').value.trim();if(!body)return;const {error}=await sb.from('messages').insert({conversation_id:id,sender_id:user.id,body});if(error)return showToast(error.message);openConversation(id)};setTimeout(()=>{$('#chatBody').scrollTop=$('#chatBody').scrollHeight},0)}
 
