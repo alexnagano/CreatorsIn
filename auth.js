@@ -6,6 +6,7 @@
     cfg.SUPABASE_ANON_KEY && !cfg.SUPABASE_ANON_KEY.includes('YOUR_')
   );
   const client = configured ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY) : null;
+  window.creatorsInSupabase = client;
   const gate = document.getElementById('authGate');
   const status = document.getElementById('accountStatus');
   const message = document.getElementById('authMessage');
@@ -127,6 +128,14 @@
     await ensureProfile(user);
     gate.classList.add('hidden');
     status.textContent = displayName(user);
+    window.creatorsInAuthUser = user;
+    window.dispatchEvent(new CustomEvent('creatorsin:user', { detail: {
+      id: user.id,
+      name: displayName(user),
+      email: user.email,
+      accountType: user.user_metadata?.account_type || 'creator',
+      avatar: user.user_metadata?.avatar_url || user.user_metadata?.picture || ''
+    }}));
     toastMsg('Signed in successfully');
   }
 
@@ -134,6 +143,7 @@
     if (!event.target.closest('[data-action="logout"]')) return;
     if (client) await client.auth.signOut();
     currentUser = null;
+    window.creatorsInAuthUser = null;
     gate.classList.remove('hidden');
     status.textContent = 'Not signed in';
     setMode('login');
