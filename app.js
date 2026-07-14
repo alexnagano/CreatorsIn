@@ -1,0 +1,307 @@
+(() => {
+'use strict';
+const cfg=window.CREATORSIN_CONFIG||{};
+const sb=window.supabase.createClient(cfg.SUPABASE_URL,cfg.SUPABASE_ANON_KEY);
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const main=$('#main'), gate=$('#authGate'), toast=$('#toast');
+let authMode='signup', user=null, profile=null, members=[], connections=[], requests=[], conversations=[], activeConversation=null;
+const EMPTY='data:image/svg+xml;charset=utf8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120"><rect width="120" height="120" rx="60" fill="#dceeff"/><circle cx="60" cy="45" r="22" fill="#58aaff"/><path d="M22 110c8-29 23-42 38-42s30 13 38 42" fill="#58aaff"/></svg>');
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function showToast(t){toast.textContent=t;toast.classList.add('show');setTimeout(()=>toast.classList.remove('show'),2200)}
+function modal(title,html){$('#modalTitle').textContent=title;$('#modalBody').innerHTML=html;$('#modalWrap').classList.remove('hidden')}
+function closeModal(){$('#modalWrap').classList.add('hidden')}
+$('#modalClose').onclick=closeModal;$('#modalWrap').onclick=e=>{if(e.target.id==='modalWrap')closeModal()};
+function setTheme(next){document.documentElement.dataset.theme=next;localStorage.setItem('cin_theme',next);$('#themeBtn').textContent=next==='dark'?'☀':'☾'}
+setTheme(localStorage.getItem('cin_theme')||'light');$('#themeBtn').onclick=()=>setTheme(document.documentElement.dataset.theme==='dark'?'light':'dark');
+
+function setAuthMode(mode){authMode=mode;$$('[data-auth]').forEach(b=>b.classList.toggle('active',b.dataset.auth===mode));$('#authTitle').textContent=mode==='signup'?'Create your account':'Welcome back';$('#emailBtn').textContent=mode==='signup'?'Create account':'Log in';$('#nameInput').classList.toggle('hidden',mode==='login');$('#typeInput').classList.toggle('hidden',mode==='login');$('#authMsg').textContent=''}
+$$('[data-auth]').forEach(b=>b.onclick=()=>setAuthMode(b.dataset.auth));
+async function oauth(provider){const {error}=await sb.auth.signInWithOAuth({provider,options:{redirectTo:cfg.SITE_URL||location.origin}});if(error)$('#authMsg').textContent=error.message}
+$('#googleBtn').onclick=()=>oauth('google');$('#appleBtn').onclick=()=>oauth('apple');
+$('#emailBtn').onclick=async()=>{const email=$('#emailInput').value.trim(),password=$('#passwordInput').value,name=$('#nameInput').value.trim(),account_type=$('#typeInput').value;$('#authMsg').textContent='';if(password.length<8)return $('#authMsg').textContent='Password must be at least 8 characters.';let result;if(authMode==='signup'){if(!name)return $('#authMsg').textContent='Enter your full name.';result=await sb.auth.signUp({email,password,options:{data:{full_name:name,account_type},emailRedirectTo:cfg.SITE_URL||location.origin}})}else result=await sb.auth.signInWithPassword({email,password});if(result.error)return $('#authMsg').textContent=result.error.message;if(!result.data.session)$('#authMsg').textContent='Check your email to confirm your account.'};
+$('#logoutBtn').onclick=async()=>{await sb.auth.signOut();location.reload()};
+
+async function ensureProfile(){const md=user.user_metadata||{};await sb.from('profiles').upsert({id:user.id,email:user.email,full_name:md.full_name||md.name||user.email.split('@')[0],account_type:md.account_type||'creator',avatar_url:md.avatar_url||md.picture||null},{onConflict:'id'});const {data}=await sb.from('profiles').select('*').eq('id',user.id).single();profile=data}
+function syncIdentity(){if(!profile)return;$('#sideName').textContent=profile.full_name;$('#sideType').textContent=(profile.is_founder?'Founder · ':'')+(profile.account_type||'creator');$('#sideAvatar').src=profile.avatar_url||EMPTY}
+function setPage(page){$$('[data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===page));({feed,discover,connectionsPage,opportunitiesPage,messagesPage,profilePage}[page]||feed)()}
+$$('[data-page]').forEach(b=>b.onclick=()=>setPage(b.dataset.page));
+
+async function loadPosts(){const {data,error}=await sb.from('posts').select('id,user_id,content,created_at,profiles(full_name,account_type,avatar_url,is_verified,is_founder)').order('created_at',{ascending:false});if(error)throw error;return data||[]}
+async function feed(){main.innerHTML=strengthCard()+`<section class="card composer"><div class="row"><img class="avatar" src="${esc(profile.avatar_url||EMPTY)}"><textarea id="postText" placeholder="Share something with the community"></textarea></div><div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="primary" id="postBtn">Post</button></div></section><div class="feed" id="feedList"></div>`;$('#postBtn').onclick=async()=>{const content=$('#postText').value.trim();if(!content)return showToast('Write something first');const {error}=await sb.from('posts').insert({user_id:user.id,content});if(error)return showToast(error.message);$('#postText').value='';showToast('Post published');feed()};const list=$('#feedList');try{const posts=await loadPosts();list.innerHTML=posts.length?posts.map(p=>`<article class="card post"><div class="post-head"><img class="avatar" src="${esc(p.profiles?.avatar_url||EMPTY)}"><div><strong>${esc(p.profiles?.full_name||'Member')} ${p.profiles?.is_verified?'<span class="verified">✓</span>':''}${p.profiles?.is_founder?'<span class="badge">Founder</span>':''}</strong><div class="muted">${esc(p.profiles?.account_type||'member')} · ${new Date(p.created_at).toLocaleString()}</div></div>${p.user_id===user.id?`<button class="secondary danger spacer" data-delete="${p.id}">Delete</button>`:''}</div><p>${esc(p.content)}</p></article>`).join(''):`<section class="card empty"><h2>Your feed is ready</h2><p class="muted">No posts yet. Be the first to introduce yourself.</p></section>`;$$('[data-delete]').forEach(b=>b.onclick=async()=>{await sb.from('posts').delete().eq('id',b.dataset.delete);feed()})}catch(e){list.innerHTML=`<section class="card empty"><h2>Could not load feed</h2><p class="muted">${esc(e.message)}</p></section>`}}
+
+async function loadSocial(){const [{data:m},{data:c},{data:r}]=await Promise.all([sb.from('profiles').select('*').neq('id',user.id).order('created_at',{ascending:false}),sb.from('connections').select('*').or(`requester_id.eq.${user.id},addressee_id.eq.${user.id}`),sb.from('connections').select('*,profiles!connections_requester_id_fkey(*)').eq('addressee_id',user.id).eq('status','pending')]);members=m||[];connections=c||[];requests=r||[];renderRequestPreview()}
+function relationship(id){const c=connections.find(x=>(x.requester_id===user.id&&x.addressee_id===id)||(x.addressee_id===user.id&&x.requester_id===id));if(!c)return null;return c}
+async function discover(){await loadSocial();main.innerHTML=`<div class="page-title"><div><h1>Discover</h1><p class="muted">Find real creators, brands, and agencies.</p></div><input class="field" id="memberSearch" placeholder="Search members" style="max-width:280px"></div><div class="grid" id="memberGrid"></div>`;const render=()=>{const q=$('#memberSearch').value.toLowerCase();const filtered=members.filter(m=>(m.full_name+' '+(m.headline||'')+' '+m.account_type).toLowerCase().includes(q));$('#memberGrid').innerHTML=filtered.length?filtered.map(m=>{const rel=relationship(m.id);let action=rel?.status==='accepted'?`<button class="primary" data-message-user="${m.id}">Message</button>`:rel?.status==='pending'?`<button class="secondary" disabled>${rel.requester_id===user.id?'Request sent':'Respond in requests'}</button>`:`<button class="primary" data-connect="${m.id}">Connect</button>`;return `<article class="card member"><div class="member-top"><img class="avatar" src="${esc(m.avatar_url||EMPTY)}"><div><h3 style="margin:0">${esc(m.full_name)} ${m.is_verified?'<span class="verified">✓</span>':''}${m.is_founder?'<span class="badge">Founder</span>':''}</h3><div class="muted">${esc(m.headline||m.account_type||'member')}</div></div></div><p class="muted">${esc(m.bio||'New member')}</p><div class="member-actions">${action}<button class="secondary" data-view="${m.id}">View profile</button></div></article>`}).join(''):`<section class="card empty"><h2>No members found</h2></section>`;bindDiscover()};$('#memberSearch').oninput=render;render()}
+function bindDiscover(){$$('[data-connect]').forEach(b=>b.onclick=async()=>{const {error}=await sb.from('connections').insert({requester_id:user.id,addressee_id:b.dataset.connect,status:'pending'});if(error)showToast(error.message);else{showToast('Connection request sent');discover()}});$$('[data-view]').forEach(b=>b.onclick=()=>showMember(b.dataset.view));$$('[data-message-user]').forEach(b=>b.onclick=()=>startConversation(b.dataset.messageUser))}
+function showMember(id){const m=members.find(x=>x.id===id);if(!m)return;modal(m.full_name,`<div class="row"><img class="avatar" style="width:82px;height:82px" src="${esc(m.avatar_url||EMPTY)}"><div><strong>${esc(m.headline||m.account_type)}</strong><p class="muted">${esc(m.bio||'No bio yet.')}</p></div></div>`)}
+
+async function connectionsPage(){await loadSocial();const accepted=connections.filter(c=>c.status==='accepted').map(c=>members.find(m=>m.id===(c.requester_id===user.id?c.addressee_id:c.requester_id))).filter(Boolean);main.innerHTML=`<div class="page-title"><div><h1>Connections</h1><p class="muted">Manage requests and people you have connected with.</p></div></div><section class="card" style="padding:18px"><h2>Pending requests</h2><div id="requestsList"></div></section><h2>My connections</h2><div class="grid">${accepted.length?accepted.map(m=>`<article class="card member"><div class="member-top"><img class="avatar" src="${esc(m.avatar_url||EMPTY)}"><div><strong>${esc(m.full_name)}</strong><div class="muted">${esc(m.headline||m.account_type)}</div></div></div><div class="member-actions"><button class="primary" data-message-user="${m.id}">Message</button></div></article>`).join(''):`<section class="card empty"><h2>No connections yet</h2><button class="primary" data-page="discover">Discover members</button></section>`}</div>`;renderRequests();$$('[data-message-user]').forEach(b=>b.onclick=()=>startConversation(b.dataset.messageUser));$$('[data-page]').forEach(b=>b.onclick=()=>setPage(b.dataset.page))}
+function renderRequests(){const el=$('#requestsList');if(!el)return;el.innerHTML=requests.length?requests.map(r=>`<div class="request row"><img class="avatar" src="${esc(r.profiles?.avatar_url||EMPTY)}"><div style="flex:1"><strong>${esc(r.profiles?.full_name||'Member')}</strong><div class="muted">${esc(r.profiles?.headline||r.profiles?.account_type||'member')}</div></div><button class="primary" data-accept="${r.id}">Accept</button><button class="secondary" data-decline="${r.id}">Decline</button></div>`).join(''):'<p class="muted">No pending requests.</p>';$$('[data-accept]').forEach(b=>b.onclick=async()=>{await sb.from('connections').update({status:'accepted',responded_at:new Date().toISOString()}).eq('id',b.dataset.accept);showToast('Connection accepted');connectionsPage()});$$('[data-decline]').forEach(b=>b.onclick=async()=>{await sb.from('connections').delete().eq('id',b.dataset.decline);connectionsPage()})}
+function renderRequestPreview(){const el=$('#requestPreview');if(!el)return;el.innerHTML=requests.length?requests.slice(0,3).map(r=>`<div class="request"><strong>${esc(r.profiles?.full_name||'Member')}</strong><div class="muted">Wants to connect</div></div>`).join(''):'No pending requests.'}
+$('#notificationsBtn').onclick=()=>setPage('connections');
+
+async function startConversation(otherId){const {data,error}=await sb.rpc('get_or_create_conversation',{other_user:otherId});if(error)return showToast(error.message);activeConversation=data;setPage('messages')}
+async function messagesPage(){await loadSocial();const accepted=connections.filter(c=>c.status==='accepted').map(c=>members.find(m=>m.id===(c.requester_id===user.id?c.addressee_id:c.requester_id))).filter(Boolean);const {data:convs}=await sb.from('conversation_members').select('conversation_id,conversations(id,updated_at),profiles:conversation_members_user_id_fkey(*)').eq('user_id',user.id);conversations=convs||[];main.innerHTML=`<div class="page-title"><div><h1>Messages</h1><p class="muted">Private messages with your connections.</p></div></div><section class="card thread-list"><div class="threads"><button class="secondary" id="newMessageBtn" style="width:100%;margin-bottom:10px">New message</button><div id="threadItems"></div></div><div class="chat" id="chatPanel"><div class="empty"><h2>Select a conversation</h2></div></div></section>`;$('#newMessageBtn').onclick=()=>modal('New message',accepted.length?accepted.map(m=>`<button class="secondary" data-start="${m.id}" style="width:100%;margin:5px 0">${esc(m.full_name)}</button>`).join(''):'<p class="muted">Connect with someone first.</p>');$$('[data-start]').forEach(b=>b.onclick=()=>{closeModal();startConversation(b.dataset.start)});await renderThreads();if(activeConversation)openConversation(activeConversation)}
+async function renderThreads(){const {data}=await sb.from('conversation_members').select('conversation_id,conversations(id,updated_at)').eq('user_id',user.id);const rows=data||[];const items=[];for(const row of rows){const {data:others}=await sb.from('conversation_members').select('profiles:conversation_members_user_id_fkey(*)').eq('conversation_id',row.conversation_id).neq('user_id',user.id).limit(1);items.push({id:row.conversation_id,other:others?.[0]?.profiles})}$('#threadItems').innerHTML=items.length?items.map(i=>`<div class="thread" data-conversation="${i.id}"><strong>${esc(i.other?.full_name||'Conversation')}</strong><div class="muted">${esc(i.other?.headline||'')}</div></div>`).join(''):'<p class="muted">No conversations yet.</p>';$$('[data-conversation]').forEach(b=>b.onclick=()=>openConversation(b.dataset.conversation))}
+async function openConversation(id){activeConversation=id;const [{data:msgs},{data:others}]=await Promise.all([sb.from('messages').select('*,profiles(full_name,avatar_url)').eq('conversation_id',id).order('created_at'),sb.from('conversation_members').select('profiles:conversation_members_user_id_fkey(*)').eq('conversation_id',id).neq('user_id',user.id).limit(1)]);const other=others?.[0]?.profiles;$('#chatPanel').innerHTML=`<div class="chat-head"><strong>${esc(other?.full_name||'Conversation')}</strong></div><div class="chat-body" id="chatBody">${(msgs||[]).map(m=>`<div class="bubble ${m.sender_id===user.id?'me':''}">${esc(m.body)}</div>`).join('')}</div><div class="chat-compose"><input class="field" id="messageInput" placeholder="Write a message"><button class="primary" id="sendMessageBtn">Send</button></div>`;$('#sendMessageBtn').onclick=async()=>{const body=$('#messageInput').value.trim();if(!body)return;const {error}=await sb.from('messages').insert({conversation_id:id,sender_id:user.id,body});if(error)return showToast(error.message);openConversation(id)};setTimeout(()=>{$('#chatBody').scrollTop=$('#chatBody').scrollHeight},0)}
+
+async function opportunitiesPage(){
+  const isBusiness=['brand','agency'].includes(profile.account_type);
+  const {data:opps,error}=await sb.from('opportunities')
+    .select('*,profiles!opportunities_business_id_fkey(full_name,avatar_url,is_verified,account_type)')
+    .eq('status','open').order('created_at',{ascending:false});
+  if(error){main.innerHTML=`<section class="card empty"><h2>Could not load opportunities</h2><p class="muted">${esc(error.message)}</p></section>`;return}
+  let myApplications=[];
+  if(!isBusiness){
+    const {data}=await sb.from('applications').select('opportunity_id,status').eq('applicant_id',user.id);
+    myApplications=data||[];
+  }
+  let businessStats='';
+  if(isBusiness){
+    const {data:mine}=await sb.from('opportunities').select('id,status').eq('business_id',user.id);
+    const ids=(mine||[]).map(x=>x.id);
+    let apps=[];
+    if(ids.length){const {data}=await sb.from('applications').select('id,status,opportunity_id').in('opportunity_id',ids);apps=data||[]}
+    businessStats=`<div class="dashboard-stats">
+      <section class="card stat-card"><strong>${(mine||[]).filter(x=>x.status==='open').length}</strong><span class="muted">Open opportunities</span></section>
+      <section class="card stat-card"><strong>${apps.length}</strong><span class="muted">Applications</span></section>
+      <section class="card stat-card"><strong>${apps.filter(x=>x.status==='accepted').length}</strong><span class="muted">Accepted creators</span></section>
+    </div>`;
+  }
+  main.innerHTML=`<div class="page-title"><div><h1>Opportunities</h1><p class="muted">Real partnerships posted by registered businesses and agencies.</p></div>${isBusiness?'<button class="primary" id="createOpportunityBtn">Post opportunity</button>':''}</div>
+    ${businessStats}<div class="feed" id="opportunityList"></div>`;
+  const list=$('#opportunityList');
+  list.innerHTML=(opps||[]).length?(opps||[]).map(o=>{
+    const existing=myApplications.find(a=>a.opportunity_id===o.id);
+    return `<article class="card opportunity">
+      <div class="post-head"><img class="avatar" src="${esc(o.profiles?.avatar_url||EMPTY)}"><div><h3>${esc(o.title)}</h3><div class="muted">${esc(o.profiles?.full_name||'Business')} ${o.profiles?.is_verified?'<span class="verified">✓</span>':''}</div></div></div>
+      <p>${esc(o.description)}</p>
+      <div class="opportunity-meta">
+        ${o.compensation?`<span class="chip">${esc(o.compensation)}</span>`:''}
+        ${o.opportunity_type?`<span class="chip">${esc(o.opportunity_type)}</span>`:''}
+        ${o.platforms?`<span class="chip">${esc(o.platforms)}</span>`:''}
+        ${o.location?`<span class="chip">${esc(o.location)}</span>`:''}
+      </div>
+      ${o.requirements?`<p><strong>Requirements:</strong> ${esc(o.requirements)}</p>`:''}
+      ${o.deadline?`<div class="muted">Apply by ${new Date(o.deadline).toLocaleDateString()}</div>`:''}
+      <div class="opportunity-footer">
+        ${o.business_id===user.id?`<button class="secondary" data-view-applicants="${o.id}">View applicants</button><button class="secondary danger" data-close-opportunity="${o.id}">Close</button>`:
+        isBusiness?'<span class="muted">Business accounts cannot apply.</span>':
+        existing?`<button class="secondary" disabled>Application: ${esc(existing.status)}</button>`:`<button class="primary" data-apply="${o.id}">Apply</button>`}
+      </div>
+    </article>`
+  }).join(''):`<section class="card empty"><h2>No opportunities yet</h2><p class="muted">${isBusiness?'Post the first real opportunity for the community.':'Businesses have not posted any opportunities yet.'}</p></section>`;
+  if(isBusiness)$('#createOpportunityBtn').onclick=openOpportunityForm;
+  $$('[data-apply]').forEach(b=>b.onclick=()=>openApplicationForm(b.dataset.apply));
+  $$('[data-view-applicants]').forEach(b=>b.onclick=()=>viewApplicants(b.dataset.viewApplicants));
+  $$('[data-close-opportunity]').forEach(b=>b.onclick=async()=>{const {error}=await sb.from('opportunities').update({status:'closed'}).eq('id',b.dataset.closeOpportunity).eq('business_id',user.id);if(error)showToast(error.message);else{showToast('Opportunity closed');opportunitiesPage()}})
+}
+function openOpportunityForm(){
+  modal('Post an opportunity',`<div class="form-grid">
+    <div class="wide"><label>Title</label><input class="field" id="oppTitle" placeholder="UGC creators for summer campaign"></div>
+    <div><label>Opportunity type</label><select class="field" id="oppType"><option>Paid sponsorship</option><option>UGC project</option><option>Affiliate program</option><option>Ambassador program</option><option>Collaboration</option><option>Job or contract</option></select></div>
+    <div><label>Compensation</label><input class="field" id="oppComp" placeholder="$500–$2,000"></div>
+    <div><label>Platforms</label><input class="field" id="oppPlatforms" placeholder="TikTok, Instagram"></div>
+    <div><label>Location</label><input class="field" id="oppLocation" placeholder="Remote or city"></div>
+    <div class="wide"><label>Description</label><textarea class="field" id="oppDescription" placeholder="Describe the campaign and deliverables"></textarea></div>
+    <div class="wide"><label>Requirements</label><textarea class="field" id="oppRequirements" placeholder="Audience, niche, follower count, location, age, etc."></textarea></div>
+    <div><label>Creators needed</label><input class="field" id="oppSlots" type="number" min="1" value="1"></div>
+    <div><label>Application deadline</label><input class="field" id="oppDeadline" type="date"></div>
+  </div><button class="primary" id="publishOpportunityBtn" style="margin-top:14px">Publish opportunity</button>`);
+  setTimeout(()=>$('#publishOpportunityBtn').onclick=async()=>{
+    const record={
+      business_id:user.id,title:$('#oppTitle').value.trim(),description:$('#oppDescription').value.trim(),
+      opportunity_type:$('#oppType').value,compensation:$('#oppComp').value.trim()||null,
+      platforms:$('#oppPlatforms').value.trim()||null,location:$('#oppLocation').value.trim()||null,
+      requirements:$('#oppRequirements').value.trim()||null,creators_needed:Number($('#oppSlots').value)||1,
+      deadline:$('#oppDeadline').value||null,status:'open'
+    };
+    if(!record.title||!record.description)return showToast('Add a title and description');
+    const {error}=await sb.from('opportunities').insert(record);
+    if(error)return showToast(error.message);
+    closeModal();showToast('Opportunity published');opportunitiesPage()
+  },0)
+}
+function openApplicationForm(opportunityId){
+  modal('Apply to opportunity',`<label>Why are you a good fit?</label><textarea class="field" id="applicationMessage" placeholder="Introduce yourself and explain your fit"></textarea>
+  <label>Portfolio or media kit link</label><input class="field" id="portfolioLink" placeholder="https://">
+  <button class="primary" id="submitApplicationBtn" style="margin-top:14px">Submit application</button>`);
+  setTimeout(()=>$('#submitApplicationBtn').onclick=async()=>{
+    const message=$('#applicationMessage').value.trim();
+    if(!message)return showToast('Add a short application message');
+    const {error}=await sb.from('applications').insert({opportunity_id:opportunityId,applicant_id:user.id,message,portfolio_url:$('#portfolioLink').value.trim()||null,status:'pending'});
+    if(error)return showToast(error.message);
+    closeModal();showToast('Application submitted');opportunitiesPage()
+  },0)
+}
+async function viewApplicants(opportunityId){
+  const {data,error}=await sb.from('applications').select('*,profiles!applications_applicant_id_fkey(full_name,headline,avatar_url,is_verified)').eq('opportunity_id',opportunityId).order('created_at');
+  if(error)return showToast(error.message);
+  modal('Applicants',(data||[]).length?(data||[]).map(a=>`<div class="application">
+    <div class="row"><img class="avatar" src="${esc(a.profiles?.avatar_url||EMPTY)}"><div style="flex:1"><strong>${esc(a.profiles?.full_name||'Creator')} ${a.profiles?.is_verified?'<span class="verified">✓</span>':''}</strong><div class="muted">${esc(a.profiles?.headline||'')}</div></div><span class="chip">${esc(a.status)}</span></div>
+    <p>${esc(a.message)}</p>${a.portfolio_url?`<a href="${esc(a.portfolio_url)}" target="_blank" rel="noopener">View portfolio</a>`:''}
+    ${a.status==='pending'?`<div class="member-actions"><button class="primary" data-app-status="${a.id}" data-status="accepted">Accept</button><button class="secondary danger" data-app-status="${a.id}" data-status="declined">Decline</button></div>`:''}
+  </div>`).join(''):'<p class="muted">No applications yet.</p>');
+  setTimeout(()=>$$('[data-app-status]').forEach(b=>b.onclick=async()=>{const {error}=await sb.from('applications').update({status:b.dataset.status,reviewed_at:new Date().toISOString()}).eq('id',b.dataset.appStatus);if(error)showToast(error.message);else{showToast(`Application ${b.dataset.status}`);closeModal();opportunitiesPage()}}),0)
+}
+
+async function profilePage(){
+  const {data}=await sb.from('profiles').select('*').eq('id',user.id).single();
+  profile=data;syncIdentity();
+  main.innerHTML=strengthCard()+`<section class="card profile">
+    <div class="profile-hero"></div>
+    <div class="profile-row">
+      <img class="avatar" src="${esc(profile.avatar_url||EMPTY)}">
+      <div>
+        <h1>${esc(profile.full_name)} ${profile.is_verified?'<span class="verified">✓</span>':''}${profile.is_founder?'<span class="badge">Founder</span>':''}</h1>
+        <div class="muted">${esc(profile.headline||profile.account_type)}</div>
+        <div class="muted">${esc(profile.location||'')}</div>
+      </div>
+      <button class="primary" id="editProfileBtn">Edit profile</button>
+    </div>
+    <p>${esc(profile.bio||'Add a bio to tell the community about yourself.')}</p>
+    <div class="opportunity-meta">
+      ${profile.niche?`<span class="chip">${esc(profile.niche)}</span>`:''}
+      ${profile.website_url?`<a class="chip" href="${esc(profile.website_url)}" target="_blank" rel="noopener">Website</a>`:''}
+      ${profile.instagram_url?`<a class="chip" href="${esc(profile.instagram_url)}" target="_blank" rel="noopener">Instagram</a>`:''}
+      ${profile.tiktok_url?`<a class="chip" href="${esc(profile.tiktok_url)}" target="_blank" rel="noopener">TikTok</a>`:''}
+      ${profile.youtube_url?`<a class="chip" href="${esc(profile.youtube_url)}" target="_blank" rel="noopener">YouTube</a>`:''}
+    </div>
+  </section>`;
+  $('#editProfileBtn').onclick=()=>modal('Edit profile',`
+    <div class="form-grid">
+      <div><label>Full name or business name</label><input class="field" id="editName" value="${esc(profile.full_name)}"></div>
+      <div><label>Account type</label><select class="field" id="editType"><option value="creator">Creator</option><option value="brand">Business</option><option value="agency">Agency</option></select></div>
+      <div class="wide"><label>Headline</label><input class="field" id="editHeadline" value="${esc(profile.headline||'')}"></div>
+      <div><label>Niche or industry</label><input class="field" id="editNiche" value="${esc(profile.niche||'')}"></div>
+      <div><label>Location</label><input class="field" id="editLocation" value="${esc(profile.location||'')}"></div>
+      <div class="wide"><label>Bio</label><textarea class="field" id="editBio">${esc(profile.bio||'')}</textarea></div>
+      <div class="wide"><label>Profile photo or logo</label><label class="upload-box" for="editAvatarFile"><strong>Upload image</strong><div class="file-note">JPG, PNG, or WebP · maximum 6 MB</div><input id="editAvatarFile" type="file" accept="image/png,image/jpeg,image/webp"></label><div id="editAvatarStatus" class="file-note">${profile.avatar_url?'Current image saved':''}</div></div>
+      <div><label>Website</label><input class="field" id="editWebsite" value="${esc(profile.website_url||'')}"></div>
+      <div><label>Instagram</label><input class="field" id="editInstagram" value="${esc(profile.instagram_url||'')}"></div>
+      <div><label>TikTok</label><input class="field" id="editTikTok" value="${esc(profile.tiktok_url||'')}"></div>
+      <div><label>YouTube</label><input class="field" id="editYouTube" value="${esc(profile.youtube_url||'')}"></div>
+    </div>
+    <button class="primary" id="saveProfileBtn" style="margin-top:14px">Save changes</button>`);
+  setTimeout(()=>{
+    $('#editType').value=profile.account_type||'creator';
+    $('#saveProfileBtn').onclick=async()=>{
+      let uploadedAvatar=profile.avatar_url||null;
+      const file=$('#editAvatarFile')?.files?.[0];
+      if(file){try{$('#editAvatarStatus').textContent='Uploading…';uploadedAvatar=await uploadProfileAsset(file,'avatar')}catch(err){return showToast(err.message)}}
+      const updates={
+        full_name:$('#editName').value.trim(),
+        account_type:$('#editType').value,
+        headline:$('#editHeadline').value.trim()||null,
+        niche:$('#editNiche').value.trim()||null,
+        location:$('#editLocation').value.trim()||null,
+        bio:$('#editBio').value.trim()||null,
+        avatar_url:uploadedAvatar,
+        website_url:$('#editWebsite').value.trim()||null,
+        instagram_url:$('#editInstagram').value.trim()||null,
+        tiktok_url:$('#editTikTok').value.trim()||null,
+        youtube_url:$('#editYouTube').value.trim()||null
+      };
+      const {error}=await sb.from('profiles').update(updates).eq('id',user.id);
+      if(error)return showToast(error.message);
+      closeModal();showToast('Profile updated');profilePage()
+    }
+  },0)
+}
+
+function profileCompletion(p){
+  const fields=[p.full_name,p.headline,p.bio,p.niche,p.location,p.avatar_url,p.website_url||p.instagram_url||p.tiktok_url||p.youtube_url];
+  const done=fields.filter(Boolean).length;
+  return {percent:Math.round(done/fields.length*100),done,total:fields.length};
+}
+function strengthCard(){
+  const s=profileCompletion(profile);
+  const items=[
+    ['Add a profile image',!!profile.avatar_url],
+    ['Add a professional headline',!!profile.headline],
+    ['Write your bio',!!profile.bio],
+    ['Add your niche or industry',!!profile.niche],
+    ['Add your location',!!profile.location],
+    ['Add at least one link',!!(profile.website_url||profile.instagram_url||profile.tiktok_url||profile.youtube_url)]
+  ];
+  return `<section class="card profile-strength"><div class="strength-row"><strong>Profile strength</strong><strong>${s.percent}%</strong></div><div class="strength-bar"><span style="width:${s.percent}%"></span></div><div class="checklist">${items.map(i=>`<div class="checkitem ${i[1]?'done':''}">${i[1]?'✓':'○'} ${i[0]}</div>`).join('')}</div></section>`
+}
+async function uploadProfileAsset(file,kind='avatar'){
+  if(!file)throw new Error('Choose an image.');
+  if(!file.type.startsWith('image/'))throw new Error('Choose a JPG, PNG, or WebP image.');
+  if(file.size>6*1024*1024)throw new Error('Choose an image under 6 MB.');
+  const ext=(file.name.split('.').pop()||'jpg').toLowerCase();
+  const path=`${user.id}/${kind}-${Date.now()}.${ext}`;
+  const {error}=await sb.storage.from('profile-assets').upload(path,file,{upsert:true,contentType:file.type});
+  if(error)throw error;
+  const {data}=sb.storage.from('profile-assets').getPublicUrl(path);
+  return data.publicUrl;
+}
+function needsOnboarding(p){
+  return !p.onboarding_completed;
+}
+let onboardingState={step:1,account_type:'creator',niche:'',platforms:[],full_name:'',headline:'',bio:'',location:'',website_url:'',avatar_url:null};
+function launchOnboarding(){
+  onboardingState={...onboardingState,account_type:profile.account_type||'creator',full_name:profile.full_name||'',headline:profile.headline||'',bio:profile.bio||'',location:profile.location||'',website_url:profile.website_url||'',avatar_url:profile.avatar_url||null};
+  $('#onboarding').classList.remove('hidden');renderOnboarding();
+}
+function renderOnboarding(){
+  const step=onboardingState.step;
+  $('#onboardingStepLabel').textContent=`Step ${step} of 4`;
+  $('#onboardingProgress').style.width=`${step*25}%`;
+  const body=$('#onboardingBody');
+  if(step===1){
+    body.innerHTML=`<h1>Welcome to CreatorsIn</h1><p class="muted">What brings you here?</p><div class="choice-grid">
+      ${[['creator','Creator','Build your profile, network, and apply to opportunities.'],['brand','Business','Find creators and post partnership opportunities.'],['agency','Agency','Represent talent and manage partnerships.']].map(x=>`<button class="choice ${onboardingState.account_type===x[0]?'active':''}" data-role="${x[0]}"><strong>${x[1]}</strong><div class="muted">${x[2]}</div></button>`).join('')}
+    </div><div style="display:flex;justify-content:flex-end;margin-top:22px"><button class="primary" id="onboardingNext">Continue</button></div>`;
+    $$('[data-role]').forEach(b=>b.onclick=()=>{onboardingState.account_type=b.dataset.role;renderOnboarding()});
+  }else if(step===2){
+    const creatorNiches=['Gaming','Fitness','Lifestyle','Beauty','Technology','Finance','Food','Travel','Sports','Music','Education','Other'];
+    const businessNiches=['Gaming','Fitness','Fashion','Technology','Food & Beverage','Finance','Entertainment','Sports','Consumer Products','Agency Services','Other'];
+    const options=onboardingState.account_type==='creator'?creatorNiches:businessNiches;
+    body.innerHTML=`<h1>${onboardingState.account_type==='creator'?'What do you create?':'Tell us your industry'}</h1><p class="muted">This helps real members discover relevant profiles.</p><div class="choice-grid">${options.map(n=>`<button class="choice ${onboardingState.niche===n?'active':''}" data-niche="${esc(n)}">${esc(n)}</button>`).join('')}</div><div style="display:flex;justify-content:space-between;margin-top:22px"><button class="secondary" id="onboardingBack">Back</button><button class="primary" id="onboardingNext">Continue</button></div>`;
+    $$('[data-niche]').forEach(b=>b.onclick=()=>{onboardingState.niche=b.dataset.niche;renderOnboarding()});
+  }else if(step===3){
+    body.innerHTML=`<h1>Build your professional profile</h1><div class="form-grid">
+      <div class="wide"><label>${onboardingState.account_type==='creator'?'Full name':'Business or agency name'}</label><input class="field" id="obName" value="${esc(onboardingState.full_name)}"></div>
+      <div class="wide"><label>Headline</label><input class="field" id="obHeadline" value="${esc(onboardingState.headline)}" placeholder="${onboardingState.account_type==='creator'?'Gaming creator and streamer':'Fitness apparel brand'}"></div>
+      <div><label>Location</label><input class="field" id="obLocation" value="${esc(onboardingState.location)}"></div>
+      <div><label>Website</label><input class="field" id="obWebsite" value="${esc(onboardingState.website_url)}" placeholder="https://"></div>
+      <div class="wide"><label>Bio</label><textarea class="field" id="obBio">${esc(onboardingState.bio)}</textarea></div>
+    </div><div style="display:flex;justify-content:space-between;margin-top:22px"><button class="secondary" id="onboardingBack">Back</button><button class="primary" id="onboardingNext">Continue</button></div>`;
+  }else{
+    body.innerHTML=`<h1>Add your ${onboardingState.account_type==='creator'?'profile photo':'logo'}</h1><p class="muted">A real photo or logo builds trust. You can change it later.</p><label class="upload-box" for="onboardingPhoto"><strong>Choose image</strong><div class="file-note">JPG, PNG, or WebP · maximum 6 MB</div><input id="onboardingPhoto" type="file" accept="image/png,image/jpeg,image/webp"></label><div id="onboardingPhotoStatus" class="muted" style="margin-top:12px">${onboardingState.avatar_url?'Image ready':''}</div><div style="display:flex;justify-content:space-between;margin-top:22px"><button class="secondary" id="onboardingBack">Back</button><button class="primary" id="finishOnboarding">Finish setup</button></div>`;
+    $('#onboardingPhoto').onchange=async e=>{try{$('#onboardingPhotoStatus').textContent='Uploading…';onboardingState.avatar_url=await uploadProfileAsset(e.target.files[0],'avatar');$('#onboardingPhotoStatus').textContent='Image uploaded successfully.'}catch(err){$('#onboardingPhotoStatus').textContent=err.message}}
+  }
+  $('#onboardingBack')?.addEventListener('click',()=>{saveOnboardingInputs();onboardingState.step--;renderOnboarding()});
+  $('#onboardingNext')?.addEventListener('click',()=>{saveOnboardingInputs();if(step===2&&!onboardingState.niche)return showToast('Choose a niche or industry');if(step===3&&!onboardingState.full_name)return showToast('Add your name');onboardingState.step++;renderOnboarding()});
+  $('#finishOnboarding')?.addEventListener('click',finishOnboarding);
+}
+function saveOnboardingInputs(){
+  if($('#obName'))onboardingState.full_name=$('#obName').value.trim();
+  if($('#obHeadline'))onboardingState.headline=$('#obHeadline').value.trim();
+  if($('#obLocation'))onboardingState.location=$('#obLocation').value.trim();
+  if($('#obWebsite'))onboardingState.website_url=$('#obWebsite').value.trim();
+  if($('#obBio'))onboardingState.bio=$('#obBio').value.trim();
+}
+async function finishOnboarding(){
+  const updates={account_type:onboardingState.account_type,niche:onboardingState.niche||null,full_name:onboardingState.full_name||profile.full_name,headline:onboardingState.headline||null,bio:onboardingState.bio||null,location:onboardingState.location||null,website_url:onboardingState.website_url||null,avatar_url:onboardingState.avatar_url||null,onboarding_completed:true};
+  const {error}=await sb.from('profiles').update(updates).eq('id',user.id);
+  if(error)return showToast(error.message);
+  profile={...profile,...updates};syncIdentity();$('#onboarding').classList.add('hidden');showToast('Welcome to CreatorsIn');setPage('feed')
+}
+function legalCopy(type){
+  const copy={
+    terms:'CreatorsIn Early Access Terms: Use the platform lawfully, post only content you own or have permission to share, and do not impersonate people or businesses. Accounts may be suspended for abuse, spam, fraud, or harmful activity.',
+    privacy:'Privacy: CreatorsIn stores account, profile, post, connection, message, opportunity, and application information in Supabase to operate the platform. Do not post sensitive personal information publicly.',
+    community:'Community Guidelines: Be truthful, professional, respectful, and safe. No fake identities, fraudulent opportunities, harassment, hate, threats, spam, or misleading claims.',
+    verification:'Verification: The Founder badge is reserved for the CreatorsIn founder. Verified Creator, Business, and Agency badges are granted only after manual review.'
+  };
+  modal(type[0].toUpperCase()+type.slice(1),`<p>${esc(copy[type])}</p>`)
+}
+$$('[data-legal]').forEach(b=>b.onclick=()=>legalCopy(b.dataset.legal));
+
+async function init(){const {data}=await sb.auth.getSession();if(!data.session){gate.classList.remove('hidden');return}user=data.session.user;gate.classList.add('hidden');await ensureProfile();syncIdentity();await loadSocial();if(needsOnboarding(profile))launchOnboarding();else setPage('feed');sb.channel('messages-live').on('postgres_changes',{event:'INSERT',schema:'public',table:'messages'},payload=>{if(activeConversation&&payload.new.conversation_id===activeConversation)openConversation(activeConversation)}).subscribe()}
+sb.auth.onAuthStateChange((_e,s)=>{if(s?.user&&!user){user=s.user;init()}else if(!s?.user&&user)location.reload()});
+init();
+})();
