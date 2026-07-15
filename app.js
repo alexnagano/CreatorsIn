@@ -63,12 +63,67 @@ async function loadTimeline(filter='for-you'){
   }
   return items;
 }
+
+function currentMentionQuery(textarea){
+  const cursor=textarea.selectionStart;
+  const before=textarea.value.slice(0,cursor);
+  const match=before.match(/(^|\s)@([A-Za-z0-9_.-]*)$/);
+  if(!match)return null;
+  return {query:match[2].toLowerCase(),start:cursor-match[2].length-1,end:cursor};
+}
+function setupMentionAutocomplete(textarea,menu){
+  let results=[],activeIndex=0;
+  const hide=()=>{menu.classList.add('hidden');menu.innerHTML='';results=[];activeIndex=0};
+  const render=()=>{
+    const mention=currentMentionQuery(textarea);
+    if(!mention)return hide();
+    results=(members||[])
+      .filter(m=>m.id!==user.id)
+      .filter(m=>{
+        const username=(m.username||'').toLowerCase();
+        const name=(m.full_name||'').toLowerCase();
+        return !mention.query||username.includes(mention.query)||name.includes(mention.query)
+      })
+      .slice(0,8);
+    if(!results.length){
+      menu.innerHTML='<div class="mention-empty">No members found</div>';
+      menu.classList.remove('hidden');
+      return;
+    }
+    menu.innerHTML=results.map((m,i)=>`<button type="button" class="mention-option ${i===activeIndex?'active':''}" data-mention-index="${i}">
+      <img class="avatar" src="${esc(m.avatar_url||EMPTY)}">
+      <div><strong>${esc(m.full_name||'Member')}</strong><div class="muted">@${esc(m.username||'member')} · ${esc(m.account_type||'member')}</div></div>
+    </button>`).join('');
+    menu.classList.remove('hidden');
+    $$('[data-mention-index]').forEach(b=>b.onmousedown=e=>{e.preventDefault();insertMention(Number(b.dataset.mentionIndex))});
+  };
+  const insertMention=index=>{
+    const mention=currentMentionQuery(textarea);
+    const m=results[index];
+    if(!mention||!m)return;
+    const username=m.username||m.full_name.toLowerCase().replace(/[^a-z0-9]+/g,'.').replace(/^\.|\.$/g,'');
+    textarea.value=textarea.value.slice(0,mention.start)+'@'+username+' '+textarea.value.slice(mention.end);
+    const pos=mention.start+username.length+2;
+    textarea.focus();
+    textarea.setSelectionRange(pos,pos);
+    hide();
+  };
+  textarea.addEventListener('input',render);
+  textarea.addEventListener('keydown',e=>{
+    if(menu.classList.contains('hidden'))return;
+    if(e.key==='ArrowDown'){e.preventDefault();activeIndex=(activeIndex+1)%Math.max(results.length,1);render()}
+    else if(e.key==='ArrowUp'){e.preventDefault();activeIndex=(activeIndex-1+Math.max(results.length,1))%Math.max(results.length,1);render()}
+    else if((e.key==='Enter'||e.key==='Tab')&&results.length){e.preventDefault();insertMention(activeIndex)}
+    else if(e.key==='Escape')hide()
+  });
+  textarea.addEventListener('blur',()=>setTimeout(hide,120));
+}
 async function feed(){
   await loadSocial();
   main.innerHTML=`<div class="social-shell">
     <div class="feed-tabs"><button class="active" data-feed-filter="for-you">For you</button><button data-feed-filter="following">My network</button></div>
     <section class="card social-composer">
-      <div class="composer-main"><img class="avatar" src="${esc(profile.avatar_url||EMPTY)}"><textarea id="postText" maxlength="5000" placeholder="What’s happening in the creator world? Use @username to tag someone."></textarea></div>
+      <div class="composer-main"><img class="avatar" src="${esc(profile.avatar_url||EMPTY)}"><div class="mention-wrap"><textarea id="postText" maxlength="5000" placeholder="What’s happening in the creator world? Type @ to tag someone."></textarea><div class="mention-menu hidden" id="mentionMenu"></div></div></div>
       <div class="link-box hidden" id="linkBox"><input class="field" id="postLink" placeholder="https://example.com"><button class="secondary" id="removeLinkBtn">Remove</button></div>
       <div class="media-preview hidden" id="mediaPreview"></div>
       <div class="upload-progress" id="uploadStatus"></div>
@@ -84,6 +139,7 @@ async function feed(){
     <div class="feed" id="feedList"></div>
   </div>`;
   let selectedFile=null,currentFilter='for-you';
+  setupMentionAutocomplete($('#postText'),$('#mentionMenu'));
   const mediaInput=$('#postMediaInput'),preview=$('#mediaPreview');
   mediaInput.onchange=e=>{
     selectedFile=e.target.files?.[0]||null;
