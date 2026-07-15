@@ -59,7 +59,10 @@ async function loadTimeline(filter='for-you'){
   let items=[...social,...opportunities].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
   if(filter==='following'){
     const followedIds=follows.map(f=>f.following_id);
-    items=items.filter(x=>followedIds.includes(x.kind==='post'?x.user_id:x.business_id));
+    items=items.filter(x=>{
+      const ownerId=x.kind==='post'?x.user_id:x.business_id;
+      return ownerId===user.id||followedIds.includes(ownerId);
+    });
   }
   return items;
 }
