@@ -50,7 +50,7 @@ async function uploadPostMedia(file){
 }
 async function loadTimeline(filter='for-you'){
   const [{data:posts,error:postError},{data:jobs,error:jobError}]=await Promise.all([
-    sb.from('posts').select('id,user_id,content,media_url,media_type,link_url,created_at,profiles(full_name,username,headline,account_type,avatar_url,is_verified,is_founder)').order('created_at',{ascending:false}),
+    sb.from('posts').select('id,user_id,content,media_url,media_type,link_url,created_at,profiles:posts_user_id_fkey(full_name,username,headline,account_type,avatar_url,is_verified,is_founder)').order('created_at',{ascending:false}),
     sb.from('opportunities').select('id,business_id,title,description,opportunity_type,compensation,platforms,location,deadline,status,created_at,profiles!opportunities_business_id_fkey(full_name,username,avatar_url,is_verified,is_founder)').eq('status','open').order('created_at',{ascending:false})
   ]);
   if(postError)throw postError;
@@ -78,13 +78,18 @@ function setupMentionAutocomplete(textarea,menu){
     const mention=currentMentionQuery(textarea);
     if(!mention)return hide();
     results=(members||[])
-      .filter(m=>m.id!==user.id)
+      .filter(m=>{
+        const sameId=m.id===user.id;
+        const sameEmail=(m.email||'').toLowerCase()===(profile.email||user.email||'').toLowerCase();
+        const sameVisibleProfile=(m.full_name||'').trim().toLowerCase()===(profile.full_name||'').trim().toLowerCase();
+        return !sameId&&!sameEmail&&!sameVisibleProfile;
+      })
       .filter(m=>{
         const username=(m.username||'').toLowerCase();
         const name=(m.full_name||'').toLowerCase();
         return !mention.query||username.includes(mention.query)||name.includes(mention.query)
       })
-      .slice(0,8);
+      .slice(0,50);
     if(!results.length){
       menu.innerHTML='<div class="mention-empty">No members found</div>';
       menu.classList.remove('hidden');
@@ -179,7 +184,7 @@ async function renderTimeline(filter){
     if(postIds.length){
       const [{data:l},{data:c}]=await Promise.all([
         sb.from('post_likes').select('post_id,user_id').in('post_id',postIds),
-        sb.from('post_comments').select('id,post_id,user_id,content,created_at,profiles(full_name,avatar_url,username)').in('post_id',postIds).order('created_at')
+        sb.from('post_comments').select('id,post_id,user_id,content,created_at,profiles:post_comments_user_id_fkey(full_name,avatar_url,username)').in('post_id',postIds).order('created_at')
       ]);likes=l||[];comments=c||[];
     }
     list.innerHTML=items.map(item=>item.kind==='job'?renderJobFeedItem(item):renderSocialPost(item,likes,comments)).join('');
