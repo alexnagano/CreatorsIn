@@ -586,7 +586,76 @@ function legalCopy(type){
 }
 $$('[data-legal]').forEach(b=>b.onclick=()=>legalCopy(b.dataset.legal));
 
-async function init(){const {data}=await sb.auth.getSession();if(!data.session){gate.classList.remove('hidden');return}user=data.session.user;gate.classList.add('hidden');await ensureProfile();syncIdentity();await loadSocial();if(needsOnboarding(profile))launchOnboarding();else setPage('feed');sb.channel('messages-live').on('postgres_changes',{event:'INSERT',schema:'public',table:'messages'},payload=>{if(activeConversation&&payload.new.conversation_id===activeConversation)openConversation(activeConversation)}).subscribe()}
+function applyThemeChoice(choice){
+  localStorage.setItem('creatorsin-theme-choice',choice);
+  const resolved=choice==='system'
+    ?(window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light')
+    :choice;
+  document.documentElement.dataset.theme=resolved;
+  document.body.classList.toggle('dark',resolved==='dark');
+  $$('[data-theme-choice]').forEach(b=>b.classList.toggle('active',b.dataset.themeChoice===choice));
+}
+function openSettings(){
+  $('#settingsWrap').classList.remove('hidden');
+  $('#settingsEmail').textContent=user?.email||profile?.email||'';
+  const discoverable=profile?.is_discoverable!==false;
+  $('#discoverableSwitch').classList.toggle('on',discoverable);
+  const choice=localStorage.getItem('creatorsin-theme-choice')||'system';
+  applyThemeChoice(choice);
+}
+function closeSettings(){
+  $('#settingsWrap').classList.add('hidden');
+}
+function toggleLocalSetting(button,key,defaultValue=false){
+  const current=localStorage.getItem(key);
+  const value=current===null?defaultValue:current==='true';
+  const next=!value;
+  localStorage.setItem(key,String(next));
+  button.classList.toggle('on',next);
+}
+function initializeSettings(){
+  const choice=localStorage.getItem('creatorsin-theme-choice')||'system';
+  applyThemeChoice(choice);
+
+  $('#settingsBtn')?.addEventListener('click',openSettings);
+  $('#closeSettingsBtn')?.addEventListener('click',closeSettings);
+  $('#settingsWrap')?.addEventListener('click',e=>{if(e.target.id==='settingsWrap')closeSettings()});
+  $$('[data-theme-choice]').forEach(b=>b.onclick=()=>applyThemeChoice(b.dataset.themeChoice));
+
+  $('#discoverableSwitch')?.addEventListener('click',async()=>{
+    const next=!$('#discoverableSwitch').classList.contains('on');
+    const {error}=await sb.from('profiles').update({is_discoverable:next}).eq('id',user.id);
+    if(error)return showToast(error.message);
+    profile.is_discoverable=next;
+    $('#discoverableSwitch').classList.toggle('on',next);
+    showToast(next?'Profile is visible in Discover':'Profile hidden from Discover');
+  });
+
+  const localSwitches=[
+    ['dmSwitch','creatorsin-allow-dms',true],
+    ['activitySwitch','creatorsin-show-activity',false],
+    ['connectionNotifSwitch','creatorsin-connection-notifs',true],
+    ['messageNotifSwitch','creatorsin-message-notifs',true]
+  ];
+  localSwitches.forEach(([id,key,def])=>{
+    const btn=$('#'+id);
+    if(!btn)return;
+    const stored=localStorage.getItem(key);
+    const value=stored===null?def:stored==='true';
+    btn.classList.toggle('on',value);
+    btn.onclick=()=>toggleLocalSetting(btn,key,def);
+  });
+
+  $('#openProfileSettingsBtn')?.addEventListener('click',()=>{closeSettings();setPage('profile')});
+  $$('[data-settings-legal]').forEach(b=>b.onclick=()=>legalCopy(b.dataset.settingsLegal));
+  $('#settingsSignOutBtn')?.addEventListener('click',async()=>{await sb.auth.signOut();location.reload()});
+
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change',()=>{
+    if((localStorage.getItem('creatorsin-theme-choice')||'system')==='system')applyThemeChoice('system')
+  });
+}
+
+async function init(){const {data}=await sb.auth.getSession();if(!data.session){gate.classList.remove('hidden');return}user=data.session.user;gate.classList.add('hidden');await ensureProfile();syncIdentity();await loadSocial();initializeSettings();if(needsOnboarding(profile))launchOnboarding();else setPage('feed');sb.channel('messages-live').on('postgres_changes',{event:'INSERT',schema:'public',table:'messages'},payload=>{if(activeConversation&&payload.new.conversation_id===activeConversation)openConversation(activeConversation)}).subscribe()}
 sb.auth.onAuthStateChange((_e,s)=>{if(s?.user&&!user){user=s.user;init()}else if(!s?.user&&user)location.reload()});
 init();
 })();
