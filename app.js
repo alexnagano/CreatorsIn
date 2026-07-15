@@ -4,7 +4,7 @@ const cfg=window.CREATORSIN_CONFIG||{};
 const sb=window.supabase.createClient(cfg.SUPABASE_URL,cfg.SUPABASE_ANON_KEY);
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const main=$('#main'), gate=$('#authGate'), toast=$('#toast');
-let authMode='signup', user=null, profile=null, members=[], connections=[], requests=[], follows=[], conversations=[], activeConversation=null;
+let authMode='signup', user=null, profile=null, members=[], connections=[], requests=[], follows=[], conversations=[], activeConversation=null, messageChannel=null, typingChannel=null, inboxChannel=null, typingTimer=null, currentChatOther=null;
 const EMPTY='data:image/svg+xml;charset=utf8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120"><rect width="120" height="120" rx="60" fill="#dceeff"/><circle cx="60" cy="45" r="22" fill="#58aaff"/><path d="M22 110c8-29 23-42 38-42s30 13 38 42" fill="#58aaff"/></svg>');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function showToast(t){toast.textContent=t;toast.classList.add('show');setTimeout(()=>toast.classList.remove('show'),2200)}
@@ -299,36 +299,182 @@ function renderRequests(){const el=$('#requestsList');if(!el)return;el.innerHTML
 function renderRequestPreview(){const el=$('#requestPreview');if(!el)return;el.innerHTML=requests.length?requests.slice(0,3).map(r=>`<div class="request"><strong>${esc(r.profiles?.full_name||'Member')}</strong><div class="muted">Wants to connect</div></div>`).join(''):'No pending requests.'}
 $('#notificationsBtn').onclick=()=>setPage('connections');
 
-async function startConversation(otherId){const {data,error}=await sb.rpc('get_or_create_conversation',{other_user:otherId});if(error)return showToast(error.message);activeConversation=data;setPage('messages')}
+async function startConversation(otherId){
+  const {data,error}=await sb.rpc('get_or_create_conversation',{other_user:otherId});
+  if(error)return showToast(error.message);
+  activeConversation=data;
+  setPage('messages')
+}
+function formatThreadTime(value){
+  if(!value)return '';
+  const d=new Date(value),now=new Date(),diff=now-d;
+  if(diff<60000)return 'now';
+  if(diff<86400000)return d.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});
+  if(diff<604800000)return d.toLocaleDateString([],{weekday:'short'});
+  return d.toLocaleDateString([],{month:'short',day:'numeric'})
+}
 async function messagesPage(){
   await loadSocial();
-  const {data:convs}=await sb.from('conversation_members').select('conversation_id,conversations(id,updated_at)').eq('user_id',user.id);
-  conversations=convs||[];
-  main.innerHTML=`<div class="page-title"><div><h1>Messages</h1><p class="muted">Send and receive private messages with any registered creator, business, or agency.</p></div></div><section class="card thread-list"><div class="threads"><button class="primary" id="newMessageBtn" style="width:100%;margin-bottom:10px">New message</button><div id="threadItems"></div></div><div class="chat" id="chatPanel"><div class="empty"><h2>Select a conversation</h2><p class="muted">Choose an existing conversation or start a new one.</p></div></div></section>`;
+  cleanupRealtimeChannels();
+  main.innerHTML=`<div class="page-title"><div><h1>Messages</h1><p class="muted">Realtime conversations with creators, businesses, and agencies.</p></div></div>
+  <section class="card thread-list">
+    <div class="threads">
+      <div class="inbox-head"><button class="primary" id="newMessageBtn" style="width:100%">New message</button></div>
+      <div id="threadItems"></div>
+    </div>
+    <div class="chat" id="chatPanel"><div class="empty"><h2>Select a conversation</h2><p class="muted">Choose an existing chat or start a new one.</p></div></div>
+  </section>`;
   $('#newMessageBtn').onclick=()=>{
     modal('New message',`<input class="field" id="messageMemberSearch" placeholder="Search creators, businesses, or agencies"><div id="messageMemberList" style="margin-top:10px;max-height:380px;overflow:auto"></div>`);
     const draw=()=>{
       const q=($('#messageMemberSearch').value||'').toLowerCase();
-      const found=members.filter(m=>(m.full_name+' '+(m.headline||'')+' '+(m.account_type||'')).toLowerCase().includes(q));
-      $('#messageMemberList').innerHTML=found.length?found.map(m=>`<button class="secondary" data-start="${m.id}" style="width:100%;margin:5px 0;text-align:left;display:flex;align-items:center;gap:10px"><img class="avatar" src="${esc(m.avatar_url||EMPTY)}"><span><strong>${esc(m.full_name)}</strong><br><small class="muted">${esc(m.headline||m.account_type||'member')}</small></span></button>`).join(''):'<p class="muted">No members found.</p>';
+      const found=members.filter(m=>(m.full_name+' '+(m.username||'')+' '+(m.headline||'')+' '+(m.account_type||'')).toLowerCase().includes(q));
+      $('#messageMemberList').innerHTML=found.length?found.map(m=>`<button class="secondary" data-start="${m.id}" style="width:100%;margin:5px 0;text-align:left;display:flex;align-items:center;gap:10px"><img class="avatar" src="${esc(m.avatar_url||EMPTY)}"><span><strong>${esc(m.full_name)}</strong><br><small class="muted">@${esc(m.username||'member')} · ${esc(m.headline||m.account_type||'member')}</small></span></button>`).join(''):'<p class="muted">No members found.</p>';
       $$('[data-start]').forEach(b=>b.onclick=()=>{closeModal();startConversation(b.dataset.start)});
     };
-    $('#messageMemberSearch').oninput=draw;draw();
+    $('#messageMemberSearch').oninput=draw;draw()
   };
   await renderThreads();
+  subscribeInbox();
   if(activeConversation)openConversation(activeConversation)
 }
-async function renderThreads(){const {data}=await sb.from('conversation_members').select('conversation_id,conversations(id,updated_at)').eq('user_id',user.id);const rows=data||[];const items=[];for(const row of rows){const {data:others}=await sb.from('conversation_members').select('profiles:conversation_members_user_id_fkey(*)').eq('conversation_id',row.conversation_id).neq('user_id',user.id).limit(1);items.push({id:row.conversation_id,other:others?.[0]?.profiles})}$('#threadItems').innerHTML=items.length?items.map(i=>`<div class="thread" data-conversation="${i.id}"><strong>${esc(i.other?.full_name||'Conversation')}</strong><div class="muted">${esc(i.other?.headline||'')}</div></div>`).join(''):'<p class="muted">No conversations yet.</p>';$$('[data-conversation]').forEach(b=>b.onclick=()=>openConversation(b.dataset.conversation))}
-async function openConversation(id){activeConversation=id;const [{data:msgs},{data:others}]=await Promise.all([sb.from('messages').select('*,profiles(full_name,avatar_url)').eq('conversation_id',id).order('created_at'),sb.from('conversation_members').select('profiles:conversation_members_user_id_fkey(*)').eq('conversation_id',id).neq('user_id',user.id).limit(1)]);const other=others?.[0]?.profiles;$('#chatPanel').innerHTML=`<div class="chat-head"><strong>${esc(other?.full_name||'Conversation')}</strong></div><div class="chat-body" id="chatBody">${(msgs||[]).map(m=>`<div class="bubble ${m.sender_id===user.id?'me':''}">${esc(m.body)}</div>`).join('')}</div><div class="chat-compose"><input class="field" id="messageInput" placeholder="Write a message"><button class="primary" id="sendMessageBtn">Send</button></div>`;$('#sendMessageBtn').onclick=async()=>{
-  const body=$('#messageInput').value.trim();
+async function renderThreads(){
+  const [{data:rows,error},{data:prefs}]=await Promise.all([
+    sb.from('conversation_members').select('conversation_id,conversations(id,updated_at)').eq('user_id',user.id),
+    sb.from('conversation_preferences').select('*').eq('user_id',user.id)
+  ]);
+  if(error){$('#threadItems').innerHTML=`<p class="muted" style="padding:14px">${esc(error.message)}</p>`;return}
+  const prefMap=new Map((prefs||[]).map(p=>[p.conversation_id,p]));
+  const items=[];
+  for(const row of rows||[]){
+    const pref=prefMap.get(row.conversation_id);
+    if(pref?.hidden_at)continue;
+    const [{data:others},{data:last},{count:unread}]=await Promise.all([
+      sb.from('conversation_members').select('profiles:conversation_members_user_id_fkey(*)').eq('conversation_id',row.conversation_id).neq('user_id',user.id).limit(1),
+      sb.from('messages').select('body,created_at,sender_id').eq('conversation_id',row.conversation_id).order('created_at',{ascending:false}).limit(1).maybeSingle(),
+      sb.from('messages').select('id',{count:'exact',head:true}).eq('conversation_id',row.conversation_id).neq('sender_id',user.id).is('read_at',null)
+    ]);
+    items.push({id:row.conversation_id,updated_at:last?.created_at||row.conversations?.updated_at,other:others?.[0]?.profiles,last,pref,unread:unread||0})
+  }
+  items.sort((a,b)=>(Number(b.pref?.is_pinned)-Number(a.pref?.is_pinned))||(new Date(b.updated_at)-new Date(a.updated_at)));
+  conversations=items;
+  $('#threadItems').innerHTML=items.length?items.map(i=>`<div class="thread ${activeConversation===i.id?'active':''}" data-conversation="${i.id}">
+    <img class="thread-avatar" src="${esc(i.other?.avatar_url||EMPTY)}">
+    <div class="thread-copy">
+      <div class="thread-name">${esc(i.other?.full_name||'Conversation')} ${i.other?.is_verified?'<span class="verified">✓</span>':''} ${i.pref?.is_pinned?'<span class="pinned-mark">📌</span>':''}</div>
+      <div class="thread-preview">${i.last?.sender_id===user.id?'You: ':''}${esc(i.last?.body||i.other?.headline||'Start the conversation')}</div>
+    </div>
+    <div style="text-align:right"><div class="thread-time">${formatThreadTime(i.updated_at)}</div><div class="thread-icons">${i.pref?.is_muted?'🔕':''}${i.unread?'<span class="unread-dot"></span>':''}</div></div>
+  </div>`).join(''):'<p class="muted" style="padding:18px">No conversations yet.</p>';
+  $$('[data-conversation]').forEach(b=>b.onclick=()=>openConversation(b.dataset.conversation))
+}
+function cleanupRealtimeChannels(){
+  [messageChannel,typingChannel,inboxChannel].forEach(ch=>{if(ch)sb.removeChannel(ch)});
+  messageChannel=typingChannel=inboxChannel=null;
+  clearTimeout(typingTimer)
+}
+function subscribeInbox(){
+  if(inboxChannel)sb.removeChannel(inboxChannel);
+  inboxChannel=sb.channel(`inbox:${user.id}`)
+    .on('postgres_changes',{event:'INSERT',schema:'public',table:'messages'},()=>renderThreads())
+    .on('postgres_changes',{event:'UPDATE',schema:'public',table:'conversation_preferences',filter:`user_id=eq.${user.id}`},()=>renderThreads())
+    .subscribe()
+}
+async function markConversationRead(id){
+  await sb.rpc('mark_conversation_read',{target_conversation:id});
+  renderThreads()
+}
+function renderMessageRows(msgs,other){
+  return (msgs||[]).map(m=>`<div class="message-row ${m.sender_id===user.id?'me':''}">
+    ${m.sender_id===user.id?'':`<img class="message-avatar" src="${esc(other?.avatar_url||EMPTY)}">`}
+    <div class="bubble ${m.sender_id===user.id?'me':''}">${esc(m.body)}<div class="bubble-time">${new Date(m.created_at).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})}</div></div>
+  </div>`).join('')
+}
+async function openConversation(id){
+  activeConversation=id;
+  if(messageChannel)sb.removeChannel(messageChannel);
+  if(typingChannel)sb.removeChannel(typingChannel);
+  const [{data:msgs,error},{data:others},{data:pref}]=await Promise.all([
+    sb.from('messages').select('*').eq('conversation_id',id).order('created_at'),
+    sb.from('conversation_members').select('profiles:conversation_members_user_id_fkey(*)').eq('conversation_id',id).neq('user_id',user.id).limit(1),
+    sb.from('conversation_preferences').select('*').eq('conversation_id',id).eq('user_id',user.id).maybeSingle()
+  ]);
+  if(error)return showToast(error.message);
+  const other=others?.[0]?.profiles;
+  currentChatOther=other;
+  $('#chatPanel').innerHTML=`<div class="chat-head">
+    <img class="chat-head-avatar" src="${esc(other?.avatar_url||EMPTY)}">
+    <div class="chat-head-copy"><strong>${esc(other?.full_name||'Conversation')} ${other?.is_verified?'<span class="verified">✓</span>':''}</strong><span id="chatPresence">@${esc(other?.username||'member')} · ${esc(other?.headline||other?.account_type||'member')}</span></div>
+    <div class="chat-menu-wrap"><button class="icon-btn" id="chatMenuBtn" aria-label="Chat options">•••</button>
+      <div class="chat-menu hidden" id="chatMenu">
+        <button id="pinChatBtn">${pref?.is_pinned?'Unpin chat':'Pin chat'}</button>
+        <button id="muteChatBtn">${pref?.is_muted?'Unmute chat':'Mute chat'}</button>
+        <button class="danger" id="deleteChatBtn">Delete chat</button>
+      </div>
+    </div>
+  </div>
+  <div class="chat-body" id="chatBody">${renderMessageRows(msgs,other)}</div>
+  <div class="typing-line" id="typingLine"></div>
+  <div class="chat-compose"><textarea class="field" id="messageInput" rows="1" placeholder="Message ${esc(other?.full_name||'member')}"></textarea><button class="primary" id="sendMessageBtn">Send</button></div>`;
+  $('#chatMenuBtn').onclick=()=>$('#chatMenu').classList.toggle('hidden');
+  $('#pinChatBtn').onclick=()=>setConversationPreference(id,'is_pinned',!pref?.is_pinned);
+  $('#muteChatBtn').onclick=()=>setConversationPreference(id,'is_muted',!pref?.is_muted);
+  $('#deleteChatBtn').onclick=()=>deleteChatForMe(id);
+  const input=$('#messageInput');
+  input.oninput=()=>{
+    input.style.height='auto';input.style.height=Math.min(input.scrollHeight,150)+'px';
+    typingChannel?.send({type:'broadcast',event:'typing',payload:{user_id:user.id,is_typing:true}});
+    clearTimeout(typingTimer);
+    typingTimer=setTimeout(()=>typingChannel?.send({type:'broadcast',event:'typing',payload:{user_id:user.id,is_typing:false}}),1200)
+  };
+  input.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendCurrentMessage(id)}};
+  $('#sendMessageBtn').onclick=()=>sendCurrentMessage(id);
+  messageChannel=sb.channel(`messages:${id}`)
+    .on('postgres_changes',{event:'INSERT',schema:'public',table:'messages',filter:`conversation_id=eq.${id}`},async payload=>{
+      const m=payload.new;
+      $('#chatBody').insertAdjacentHTML('beforeend',renderMessageRows([m],other));
+      $('#chatBody').scrollTop=$('#chatBody').scrollHeight;
+      if(m.sender_id!==user.id)await markConversationRead(id);
+      renderThreads()
+    }).subscribe();
+  typingChannel=sb.channel(`typing:${id}`,{config:{broadcast:{self:false},presence:{key:user.id}}})
+    .on('broadcast',{event:'typing'},({payload})=>{
+      if(payload.user_id===user.id)return;
+      $('#typingLine').innerHTML=payload.is_typing?`${esc(other?.full_name||'Member')} is typing <span class="typing-dots"><i></i><i></i><i></i></span>`:''
+    })
+    .on('presence',{event:'sync'},()=>{
+      const state=typingChannel.presenceState();
+      const otherOnline=Object.keys(state).some(key=>key!==user.id);
+      $('#chatPresence').innerHTML=`${otherOnline?'<span class="online-dot"></span> Online':'@'+esc(other?.username||'member')+' · '+esc(other?.headline||other?.account_type||'member')}`
+    })
+    .subscribe(async status=>{if(status==='SUBSCRIBED')await typingChannel.track({user_id:user.id,online_at:new Date().toISOString()})});
+  await markConversationRead(id);
+  setTimeout(()=>{$('#chatBody').scrollTop=$('#chatBody').scrollHeight},0);
+  renderThreads()
+}
+async function sendCurrentMessage(id){
+  const input=$('#messageInput'),body=input.value.trim();
   if(!body)return;
   $('#sendMessageBtn').disabled=true;
   const {error}=await sb.rpc('send_message',{target_conversation:id,message_body:body});
   $('#sendMessageBtn').disabled=false;
   if(error)return showToast(error.message);
-  $('#messageInput').value='';
-  openConversation(id)
-};setTimeout(()=>{$('#chatBody').scrollTop=$('#chatBody').scrollHeight},0)}
+  input.value='';input.style.height='auto';
+  typingChannel?.send({type:'broadcast',event:'typing',payload:{user_id:user.id,is_typing:false}})
+}
+async function setConversationPreference(id,column,value){
+  const record={conversation_id:id,user_id:user.id,[column]:value,hidden_at:null,updated_at:new Date().toISOString()};
+  const {error}=await sb.from('conversation_preferences').upsert(record,{onConflict:'conversation_id,user_id'});
+  if(error)return showToast(error.message);
+  showToast(value?(column==='is_pinned'?'Chat pinned':'Chat muted'):(column==='is_pinned'?'Chat unpinned':'Chat unmuted'));
+  openConversation(id);renderThreads()
+}
+async function deleteChatForMe(id){
+  if(!confirm('Remove this chat from your inbox? The other person will keep their copy.'))return;
+  const {error}=await sb.from('conversation_preferences').upsert({conversation_id:id,user_id:user.id,hidden_at:new Date().toISOString(),updated_at:new Date().toISOString()},{onConflict:'conversation_id,user_id'});
+  if(error)return showToast(error.message);
+  activeConversation=null;cleanupRealtimeChannels();messagesPage();showToast('Chat removed')
+}
 
 async function opportunitiesPage(){
   const isBusiness=['brand','agency'].includes(profile.account_type);
