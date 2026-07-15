@@ -71,6 +71,17 @@ function currentMentionQuery(textarea){
   if(!match)return null;
   return {query:match[2].toLowerCase(),start:cursor-match[2].length-1,end:cursor};
 }
+
+function updateMentionChips(textarea){
+  const box=$('#mentionChips');
+  if(!box)return;
+  const usernames=[...textarea.value.matchAll(/(^|\s)@([A-Za-z0-9_.-]+)/g)].map(m=>m[2]);
+  const unique=[...new Set(usernames)];
+  if(!unique.length){box.classList.add('hidden');box.innerHTML='';return}
+  box.innerHTML=unique.map(name=>`<span class="mention-chip">@${esc(name)}</span>`).join('');
+  box.classList.remove('hidden');
+}
+
 function setupMentionAutocomplete(textarea,menu){
   let results=[],activeIndex=0;
   const hide=()=>{menu.classList.add('hidden');menu.innerHTML='';results=[];activeIndex=0};
@@ -111,9 +122,10 @@ function setupMentionAutocomplete(textarea,menu){
     const pos=mention.start+username.length+2;
     textarea.focus();
     textarea.setSelectionRange(pos,pos);
+    updateMentionChips(textarea);
     hide();
   };
-  textarea.addEventListener('input',render);
+  textarea.addEventListener('input',()=>{updateMentionChips(textarea);render()});
   textarea.addEventListener('keydown',e=>{
     if(menu.classList.contains('hidden'))return;
     if(e.key==='ArrowDown'){e.preventDefault();activeIndex=(activeIndex+1)%Math.max(results.length,1);render()}
@@ -128,7 +140,7 @@ async function feed(){
   main.innerHTML=`<div class="social-shell">
     <div class="feed-tabs"><button class="active" data-feed-filter="for-you">For you</button><button data-feed-filter="following">My network</button></div>
     <section class="card social-composer">
-      <div class="composer-main"><img class="avatar" src="${esc(profile.avatar_url||EMPTY)}"><div class="mention-wrap"><textarea id="postText" maxlength="5000" placeholder="What’s happening in the creator world? Type @ to tag someone."></textarea><div class="mention-menu hidden" id="mentionMenu"></div></div></div>
+      <div class="composer-main"><img class="avatar" src="${esc(profile.avatar_url||EMPTY)}"><div class="mention-wrap"><textarea id="postText" maxlength="5000" placeholder="What’s happening in the creator world? Type @ to tag someone."></textarea><div class="mention-chips hidden" id="mentionChips"></div><div class="mention-menu hidden" id="mentionMenu"></div></div></div>
       <div class="link-box hidden" id="linkBox"><input class="field" id="postLink" placeholder="https://example.com"><button class="secondary" id="removeLinkBtn">Remove</button></div>
       <div class="media-preview hidden" id="mediaPreview"></div>
       <div class="upload-progress" id="uploadStatus"></div>
@@ -168,7 +180,7 @@ async function feed(){
       if(selectedFile){$('#uploadStatus').textContent='Uploading media…';media=await uploadPostMedia(selectedFile)}
       const {error}=await sb.from('posts').insert({user_id:user.id,content:content||'',media_url:media?.url||null,media_type:media?.type||null,link_url});
       if(error)throw error;
-      $('#postText').value='';$('#postLink').value='';selectedFile=null;$('#uploadStatus').textContent='';showToast('Post published');feed()
+      $('#postText').value='';$('#postLink').value='';selectedFile=null;$('#uploadStatus').textContent='';updateMentionChips($('#postText'));showToast('Post published');feed()
     }catch(err){showToast(err.message);$('#uploadStatus').textContent=''}finally{$('#postBtn').disabled=false}
   };
   $$('[data-feed-filter]').forEach(b=>b.onclick=()=>{$$('[data-feed-filter]').forEach(x=>x.classList.toggle('active',x===b));currentFilter=b.dataset.feedFilter;renderTimeline(currentFilter)});
