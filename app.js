@@ -64,7 +64,16 @@ async function messagesPage(){
   if(activeConversation)openConversation(activeConversation)
 }
 async function renderThreads(){const {data}=await sb.from('conversation_members').select('conversation_id,conversations(id,updated_at)').eq('user_id',user.id);const rows=data||[];const items=[];for(const row of rows){const {data:others}=await sb.from('conversation_members').select('profiles:conversation_members_user_id_fkey(*)').eq('conversation_id',row.conversation_id).neq('user_id',user.id).limit(1);items.push({id:row.conversation_id,other:others?.[0]?.profiles})}$('#threadItems').innerHTML=items.length?items.map(i=>`<div class="thread" data-conversation="${i.id}"><strong>${esc(i.other?.full_name||'Conversation')}</strong><div class="muted">${esc(i.other?.headline||'')}</div></div>`).join(''):'<p class="muted">No conversations yet.</p>';$$('[data-conversation]').forEach(b=>b.onclick=()=>openConversation(b.dataset.conversation))}
-async function openConversation(id){activeConversation=id;const [{data:msgs},{data:others}]=await Promise.all([sb.from('messages').select('*,profiles(full_name,avatar_url)').eq('conversation_id',id).order('created_at'),sb.from('conversation_members').select('profiles:conversation_members_user_id_fkey(*)').eq('conversation_id',id).neq('user_id',user.id).limit(1)]);const other=others?.[0]?.profiles;$('#chatPanel').innerHTML=`<div class="chat-head"><strong>${esc(other?.full_name||'Conversation')}</strong></div><div class="chat-body" id="chatBody">${(msgs||[]).map(m=>`<div class="bubble ${m.sender_id===user.id?'me':''}">${esc(m.body)}</div>`).join('')}</div><div class="chat-compose"><input class="field" id="messageInput" placeholder="Write a message"><button class="primary" id="sendMessageBtn">Send</button></div>`;$('#sendMessageBtn').onclick=async()=>{const body=$('#messageInput').value.trim();if(!body)return;const {error}=await sb.from('messages').insert({conversation_id:id,sender_id:user.id,body});if(error)return showToast(error.message);openConversation(id)};setTimeout(()=>{$('#chatBody').scrollTop=$('#chatBody').scrollHeight},0)}
+async function openConversation(id){activeConversation=id;const [{data:msgs},{data:others}]=await Promise.all([sb.from('messages').select('*,profiles(full_name,avatar_url)').eq('conversation_id',id).order('created_at'),sb.from('conversation_members').select('profiles:conversation_members_user_id_fkey(*)').eq('conversation_id',id).neq('user_id',user.id).limit(1)]);const other=others?.[0]?.profiles;$('#chatPanel').innerHTML=`<div class="chat-head"><strong>${esc(other?.full_name||'Conversation')}</strong></div><div class="chat-body" id="chatBody">${(msgs||[]).map(m=>`<div class="bubble ${m.sender_id===user.id?'me':''}">${esc(m.body)}</div>`).join('')}</div><div class="chat-compose"><input class="field" id="messageInput" placeholder="Write a message"><button class="primary" id="sendMessageBtn">Send</button></div>`;$('#sendMessageBtn').onclick=async()=>{
+  const body=$('#messageInput').value.trim();
+  if(!body)return;
+  $('#sendMessageBtn').disabled=true;
+  const {error}=await sb.rpc('send_message',{target_conversation:id,message_body:body});
+  $('#sendMessageBtn').disabled=false;
+  if(error)return showToast(error.message);
+  $('#messageInput').value='';
+  openConversation(id)
+};setTimeout(()=>{$('#chatBody').scrollTop=$('#chatBody').scrollHeight},0)}
 
 async function opportunitiesPage(){
   const isBusiness=['brand','agency'].includes(profile.account_type);
