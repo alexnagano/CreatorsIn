@@ -363,10 +363,32 @@ async function renderThreads(){
     <div class="thread-copy">
       <div class="thread-name">${esc(i.other?.full_name||'Conversation')} ${i.other?.is_verified?'<span class="verified">✓</span>':''} ${i.pref?.is_pinned?'<span class="pinned-mark">📌</span>':''}</div>
       <div class="thread-preview">${i.last?.sender_id===user.id?'You: ':''}${esc(i.last?.body||i.other?.headline||'Start the conversation')}</div>
+      <div class="thread-time">${formatThreadTime(i.updated_at)} ${i.pref?.is_muted?'· Muted':''}</div>
     </div>
-    <div style="text-align:right"><div class="thread-time">${formatThreadTime(i.updated_at)}</div><div class="thread-icons">${i.pref?.is_muted?'🔕':''}${i.unread?'<span class="unread-dot"></span>':''}</div></div>
+    <div class="thread-actions">
+      ${i.unread?'<span class="unread-dot"></span>':''}
+      <button class="thread-more" data-thread-menu="${i.id}" aria-label="Chat options">•••</button>
+      <div class="thread-popup hidden" id="thread-popup-${i.id}">
+        <button data-sidebar-pin="${i.id}" data-value="${i.pref?.is_pinned?'false':'true'}">${i.pref?.is_pinned?'Unpin chat':'Pin chat'}</button>
+        <button data-sidebar-mute="${i.id}" data-value="${i.pref?.is_muted?'false':'true'}">${i.pref?.is_muted?'Unmute chat':'Mute chat'}</button>
+        <button class="danger" data-sidebar-delete="${i.id}">Delete chat</button>
+      </div>
+    </div>
   </div>`).join(''):'<p class="muted" style="padding:18px">No conversations yet.</p>';
-  $$('[data-conversation]').forEach(b=>b.onclick=()=>openConversation(b.dataset.conversation))
+  $$('[data-conversation]').forEach(b=>b.onclick=e=>{
+    if(e.target.closest('[data-thread-menu],[data-sidebar-pin],[data-sidebar-mute],[data-sidebar-delete]'))return;
+    openConversation(b.dataset.conversation)
+  });
+  $$('[data-thread-menu]').forEach(b=>b.onclick=e=>{
+    e.stopPropagation();
+    const popup=$('#thread-popup-'+b.dataset.threadMenu);
+    $$('.thread-popup').forEach(p=>{if(p!==popup)p.classList.add('hidden')});
+    popup.classList.toggle('hidden')
+  });
+  $$('[data-sidebar-pin]').forEach(b=>b.onclick=e=>{e.stopPropagation();setConversationPreference(b.dataset.sidebarPin,'is_pinned',b.dataset.value==='true')});
+  $$('[data-sidebar-mute]').forEach(b=>b.onclick=e=>{e.stopPropagation();setConversationPreference(b.dataset.sidebarMute,'is_muted',b.dataset.value==='true')});
+  $$('[data-sidebar-delete]').forEach(b=>b.onclick=e=>{e.stopPropagation();deleteChatForMe(b.dataset.sidebarDelete)});
+  document.addEventListener('click',()=>$$('.thread-popup').forEach(p=>p.classList.add('hidden')),{once:true})
 }
 function cleanupRealtimeChannels(){
   [messageChannel,typingChannel,inboxChannel].forEach(ch=>{if(ch)sb.removeChannel(ch)});
@@ -405,7 +427,7 @@ async function openConversation(id){
   $('#chatPanel').innerHTML=`<div class="chat-head">
     <img class="chat-head-avatar" src="${esc(other?.avatar_url||EMPTY)}">
     <div class="chat-head-copy"><strong>${esc(other?.full_name||'Conversation')} ${other?.is_verified?'<span class="verified">✓</span>':''}</strong><span id="chatPresence">@${esc(other?.username||'member')} · ${esc(other?.headline||other?.account_type||'member')}</span></div>
-    <div class="chat-menu-wrap"><button class="icon-btn" id="chatMenuBtn" aria-label="Chat options">•••</button>
+    <div class="chat-menu-wrap"><button class="icon-btn" id="chatMenuBtn" data-tooltip="Chat options" aria-label="Chat options">•••</button>
       <div class="chat-menu hidden" id="chatMenu">
         <button id="pinChatBtn">${pref?.is_pinned?'Unpin chat':'Pin chat'}</button>
         <button id="muteChatBtn">${pref?.is_muted?'Unmute chat':'Mute chat'}</button>
