@@ -30,8 +30,128 @@ function setPage(page){
 }
 $$('[data-page]').forEach(b=>b.onclick=()=>setPage(b.dataset.page));
 
-async function loadPosts(){const {data,error}=await sb.from('posts').select('id,user_id,content,created_at,profiles(full_name,account_type,avatar_url,is_verified,is_founder)').order('created_at',{ascending:false});if(error)throw error;return data||[]}
-async function feed(){main.innerHTML=strengthCard()+`<section class="card composer"><div class="row"><img class="avatar" src="${esc(profile.avatar_url||EMPTY)}"><textarea id="postText" placeholder="Share something with the community"></textarea></div><div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="primary" id="postBtn">Post</button></div></section><div class="feed" id="feedList"></div>`;$('#postBtn').onclick=async()=>{const content=$('#postText').value.trim();if(!content)return showToast('Write something first');const {error}=await sb.from('posts').insert({user_id:user.id,content});if(error)return showToast(error.message);$('#postText').value='';showToast('Post published');feed()};const list=$('#feedList');try{const posts=await loadPosts();list.innerHTML=posts.length?posts.map(p=>`<article class="card post"><div class="post-head"><img class="avatar" src="${esc(p.profiles?.avatar_url||EMPTY)}"><div><strong>${esc(p.profiles?.full_name||'Member')} ${p.profiles?.is_verified?'<span class="verified">✓</span>':''}${p.profiles?.is_founder?'<span class="badge">Founder</span>':''}</strong><div class="muted">${esc(p.profiles?.account_type||'member')} · ${new Date(p.created_at).toLocaleString()}</div></div>${p.user_id===user.id?`<button class="secondary danger spacer" data-delete="${p.id}">Delete</button>`:''}</div><p>${esc(p.content)}</p></article>`).join(''):`<section class="card empty"><h2>Your feed is ready</h2><p class="muted">No posts yet. Be the first to introduce yourself.</p></section>`;$$('[data-delete]').forEach(b=>b.onclick=async()=>{await sb.from('posts').delete().eq('id',b.dataset.delete);feed()})}catch(e){list.innerHTML=`<section class="card empty"><h2>Could not load feed</h2><p class="muted">${esc(e.message)}</p></section>`}}
+function renderPostText(text){
+  return esc(text).replace(/(^|\s)@([A-Za-z0-9_.-]+)/g,'$1<span class="mention">@$2</span>').replace(/\n/g,'<br>');
+}
+function validHttpUrl(value){
+  try{const u=new URL(value);return ['http:','https:'].includes(u.protocol)?u.toString():null}catch{return null}
+}
+async function uploadPostMedia(file){
+  if(!file)return null;
+  if(!file.type.startsWith('image/')&&!file.type.startsWith('video/'))throw new Error('Choose an image or video.');
+  const limit=file.type.startsWith('video/')?80*1024*1024:12*1024*1024;
+  if(file.size>limit)throw new Error(file.type.startsWith('video/')?'Videos must be under 80 MB.':'Images must be under 12 MB.');
+  const ext=(file.name.split('.').pop()||'bin').toLowerCase();
+  const path=`${user.id}/${Date.now()}-${crypto.randomUUID()}.${ext}`;
+  const {error}=await sb.storage.from('post-media').upload(path,file,{contentType:file.type,upsert:false});
+  if(error)throw error;
+  const {data}=sb.storage.from('post-media').getPublicUrl(path);
+  return {url:data.publicUrl,type:file.type.startsWith('video/')?'video':'image'};
+}
+async function loadTimeline(filter='for-you'){
+  const [{data:posts,error:postError},{data:jobs,error:jobError}]=await Promise.all([
+    sb.from('posts').select('id,user_id,content,media_url,media_type,link_url,created_at,profiles(full_name,username,headline,account_type,avatar_url,is_verified,is_founder)').order('created_at',{ascending:false}),
+    sb.from('opportunities').select('id,business_id,title,description,opportunity_type,compensation,platforms,location,deadline,status,created_at,profiles!opportunities_business_id_fkey(full_name,username,avatar_url,is_verified,is_founder)').eq('status','open').order('created_at',{ascending:false})
+  ]);
+  if(postError)throw postError;
+  const social=(posts||[]).map(x=>({...x,kind:'post'}));
+  const opportunities=jobError?[]:(jobs||[]).map(x=>({...x,kind:'job'}));
+  let items=[...social,...opportunities].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
+  if(filter==='following'){
+    const acceptedIds=connections.filter(c=>c.status==='accepted').map(c=>c.requester_id===user.id?c.addressee_id:c.requester_id);
+    items=items.filter(x=>(x.kind==='post'?x.user_id:x.business_id)===user.id||acceptedIds.includes(x.kind==='post'?x.user_id:x.business_id));
+  }
+  return items;
+}
+async function feed(){
+  await loadSocial();
+  main.innerHTML=`<div class="social-shell">
+    <div class="feed-tabs"><button class="active" data-feed-filter="for-you">For you</button><button data-feed-filter="following">My network</button></div>
+    <section class="card social-composer">
+      <div class="composer-main"><img class="avatar" src="${esc(profile.avatar_url||EMPTY)}"><textarea id="postText" maxlength="5000" placeholder="What’s happening in the creator world? Use @username to tag someone."></textarea></div>
+      <div class="link-box hidden" id="linkBox"><input class="field" id="postLink" placeholder="https://example.com"><button class="secondary" id="removeLinkBtn">Remove</button></div>
+      <div class="media-preview hidden" id="mediaPreview"></div>
+      <div class="upload-progress" id="uploadStatus"></div>
+      <div class="composer-toolbar">
+        <label class="tool-btn" for="postMediaInput">▧ Photo / video</label>
+        <input class="hidden" id="postMediaInput" type="file" accept="image/*,video/*">
+        <button class="tool-btn" id="addLinkBtn">↗ Link</button>
+        <button class="tool-btn" id="tagHelpBtn">@ Tag</button>
+        ${['brand','agency'].includes(profile.account_type)?'<button class="tool-btn" id="shareOpportunityBtn">▣ Job posting</button>':''}
+        <button class="primary" id="postBtn">Post</button>
+      </div>
+    </section>
+    <div class="feed" id="feedList"></div>
+  </div>`;
+  let selectedFile=null,currentFilter='for-you';
+  const mediaInput=$('#postMediaInput'),preview=$('#mediaPreview');
+  mediaInput.onchange=e=>{
+    selectedFile=e.target.files?.[0]||null;
+    if(!selectedFile){preview.classList.add('hidden');return}
+    const local=URL.createObjectURL(selectedFile);
+    preview.innerHTML=`<button class="remove-media" id="removeMediaBtn">×</button>${selectedFile.type.startsWith('video/')?`<video controls src="${local}"></video>`:`<img src="${local}" alt="Post preview">`}`;
+    preview.classList.remove('hidden');
+    $('#removeMediaBtn').onclick=()=>{selectedFile=null;mediaInput.value='';preview.classList.add('hidden');preview.innerHTML=''}
+  };
+  $('#addLinkBtn').onclick=()=>$('#linkBox').classList.toggle('hidden');
+  $('#removeLinkBtn').onclick=()=>{$('#postLink').value='';$('#linkBox').classList.add('hidden')};
+  $('#tagHelpBtn').onclick=()=>showToast('Type @username in your post to tag a member');
+  $('#shareOpportunityBtn')?.addEventListener('click',()=>setPage('opportunities'));
+  $('#postBtn').onclick=async()=>{
+    const content=$('#postText').value.trim(),rawLink=$('#postLink').value.trim(),link_url=rawLink?validHttpUrl(rawLink):null;
+    if(rawLink&&!link_url)return showToast('Enter a valid https:// link');
+    if(!content&&!selectedFile&&!link_url)return showToast('Add text, media, or a link');
+    $('#postBtn').disabled=true;
+    try{
+      let media=null;
+      if(selectedFile){$('#uploadStatus').textContent='Uploading media…';media=await uploadPostMedia(selectedFile)}
+      const {error}=await sb.from('posts').insert({user_id:user.id,content:content||'',media_url:media?.url||null,media_type:media?.type||null,link_url});
+      if(error)throw error;
+      $('#postText').value='';$('#postLink').value='';selectedFile=null;$('#uploadStatus').textContent='';showToast('Post published');feed()
+    }catch(err){showToast(err.message);$('#uploadStatus').textContent=''}finally{$('#postBtn').disabled=false}
+  };
+  $$('[data-feed-filter]').forEach(b=>b.onclick=()=>{$$('[data-feed-filter]').forEach(x=>x.classList.toggle('active',x===b));currentFilter=b.dataset.feedFilter;renderTimeline(currentFilter)});
+  renderTimeline(currentFilter);
+}
+async function renderTimeline(filter){
+  const list=$('#feedList');list.innerHTML='<section class="card empty"><p class="muted">Loading feed…</p></section>';
+  try{
+    const items=await loadTimeline(filter);
+    if(!items.length){list.innerHTML=`<section class="card empty"><h2>No posts yet</h2><p class="muted">Follow real members or publish the first post.</p></section>`;return}
+    const postIds=items.filter(x=>x.kind==='post').map(x=>x.id);
+    let likes=[],comments=[];
+    if(postIds.length){
+      const [{data:l},{data:c}]=await Promise.all([
+        sb.from('post_likes').select('post_id,user_id').in('post_id',postIds),
+        sb.from('post_comments').select('id,post_id,user_id,content,created_at,profiles(full_name,avatar_url,username)').in('post_id',postIds).order('created_at')
+      ]);likes=l||[];comments=c||[];
+    }
+    list.innerHTML=items.map(item=>item.kind==='job'?renderJobFeedItem(item):renderSocialPost(item,likes,comments)).join('');
+    bindFeedActions();
+  }catch(e){list.innerHTML=`<section class="card empty"><h2>Could not load the feed</h2><p class="muted">${esc(e.message)}</p></section>`}
+}
+function renderSocialPost(p,likes,comments){
+  const postLikes=likes.filter(x=>x.post_id===p.id),postComments=comments.filter(x=>x.post_id===p.id),liked=postLikes.some(x=>x.user_id===user.id);
+  return `<article class="card social-post">
+    <div class="social-post-header"><img class="avatar" src="${esc(p.profiles?.avatar_url||EMPTY)}"><div style="flex:1"><strong>${esc(p.profiles?.full_name||'Member')} ${p.profiles?.is_verified?'<span class="verified">✓</span>':''}${p.profiles?.is_founder?'<span class="badge">Founder</span>':''}</strong><div class="muted">@${esc(p.profiles?.username||'member')} · ${new Date(p.created_at).toLocaleString()}</div></div>${p.user_id===user.id?`<button class="secondary danger" data-delete-post="${p.id}">Delete</button>`:''}</div>
+    <div class="social-post-body">${p.content?`<p>${renderPostText(p.content)}</p>`:''}${p.link_url?`<a class="post-link" href="${esc(p.link_url)}" target="_blank" rel="noopener"><strong>Open link ↗</strong><br>${esc(p.link_url)}</a>`:''}</div>
+    ${p.media_url?(p.media_type==='video'?`<video class="post-media" controls preload="metadata" src="${esc(p.media_url)}"></video>`:`<img class="post-media" loading="lazy" src="${esc(p.media_url)}" alt="Post media">`):''}
+    <div class="post-actions"><button class="post-action ${liked?'active':''}" data-like="${p.id}">♡ ${postLikes.length}</button><button class="post-action" data-toggle-comments="${p.id}">↩ ${postComments.length}</button><button class="post-action" data-copy-post="${p.id}">↗ Share</button><button class="post-action" data-message-author="${p.user_id}">✉ Message</button></div>
+    <div class="comments hidden" id="comments-${p.id}"><div>${postComments.map(c=>`<div class="comment-row"><img class="avatar" src="${esc(c.profiles?.avatar_url||EMPTY)}"><div class="comment-body"><strong>${esc(c.profiles?.full_name||'Member')}</strong><div>${renderPostText(c.content)}</div></div></div>`).join('')}</div><div class="comment-form"><input class="field" id="comment-input-${p.id}" placeholder="Write a reply"><button class="primary" data-comment="${p.id}">Reply</button></div></div>
+  </article>`
+}
+function renderJobFeedItem(o){
+  return `<article class="card social-post"><div class="social-post-header"><img class="avatar" src="${esc(o.profiles?.avatar_url||EMPTY)}"><div style="flex:1"><strong>${esc(o.profiles?.full_name||'Business')} ${o.profiles?.is_verified?'<span class="verified">✓</span>':''}</strong><div class="muted">posted an opportunity · ${new Date(o.created_at).toLocaleString()}</div></div><span class="post-type">Opportunity</span></div><div class="social-post-body"><div class="job-card"><h3>${esc(o.title)}</h3><p>${esc(o.description)}</p><div class="job-meta">${o.compensation?`<span class="chip">${esc(o.compensation)}</span>`:''}${o.opportunity_type?`<span class="chip">${esc(o.opportunity_type)}</span>`:''}${o.platforms?`<span class="chip">${esc(o.platforms)}</span>`:''}${o.location?`<span class="chip">${esc(o.location)}</span>`:''}</div>${o.deadline?`<div class="muted">Apply by ${new Date(o.deadline).toLocaleDateString()}</div>`:''}<button class="primary" data-open-opportunity="${o.id}" style="margin-top:12px">View opportunity</button></div></div></article>`
+}
+function bindFeedActions(){
+  $$('[data-like]').forEach(b=>b.onclick=async()=>{const post_id=b.dataset.like;const {data}=await sb.from('post_likes').select('post_id').eq('post_id',post_id).eq('user_id',user.id).maybeSingle();if(data)await sb.from('post_likes').delete().eq('post_id',post_id).eq('user_id',user.id);else await sb.from('post_likes').insert({post_id,user_id:user.id});renderTimeline(document.querySelector('[data-feed-filter].active')?.dataset.feedFilter||'for-you')});
+  $$('[data-toggle-comments]').forEach(b=>b.onclick=()=>$('#comments-'+b.dataset.toggleComments).classList.toggle('hidden'));
+  $$('[data-comment]').forEach(b=>b.onclick=async()=>{const post_id=b.dataset.comment,input=$('#comment-input-'+post_id),content=input.value.trim();if(!content)return;const {error}=await sb.from('post_comments').insert({post_id,user_id:user.id,content});if(error)return showToast(error.message);renderTimeline(document.querySelector('[data-feed-filter].active')?.dataset.feedFilter||'for-you')});
+  $$('[data-copy-post]').forEach(b=>b.onclick=async()=>{await navigator.clipboard.writeText(`${location.origin}/?post=${b.dataset.copyPost}`);showToast('Post link copied')});
+  $$('[data-message-author]').forEach(b=>b.onclick=()=>startConversation(b.dataset.messageAuthor));
+  $$('[data-delete-post]').forEach(b=>b.onclick=async()=>{await sb.from('posts').delete().eq('id',b.dataset.deletePost).eq('user_id',user.id);showToast('Post deleted');renderTimeline(document.querySelector('[data-feed-filter].active')?.dataset.feedFilter||'for-you')});
+  $$('[data-open-opportunity]').forEach(b=>b.onclick=()=>setPage('opportunities'));
+}
 
 async function loadSocial(){const [{data:m},{data:c},{data:r}]=await Promise.all([sb.from('profiles').select('*').neq('id',user.id).order('created_at',{ascending:false}),sb.from('connections').select('*').or(`requester_id.eq.${user.id},addressee_id.eq.${user.id}`),sb.from('connections').select('*,profiles!connections_requester_id_fkey(*)').eq('addressee_id',user.id).eq('status','pending')]);members=m||[];connections=c||[];requests=r||[];renderRequestPreview()}
 function relationship(id){const c=connections.find(x=>(x.requester_id===user.id&&x.addressee_id===id)||(x.addressee_id===user.id&&x.requester_id===id));if(!c)return null;return c}
