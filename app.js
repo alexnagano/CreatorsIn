@@ -4,7 +4,7 @@ const cfg=window.CREATORSIN_CONFIG||{};
 const sb=window.supabase.createClient(cfg.SUPABASE_URL,cfg.SUPABASE_ANON_KEY);
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const main=$('#main'), gate=$('#authGate'), toast=$('#toast');
-let authMode='signup', user=null, profile=null, members=[], connections=[], requests=[], conversations=[], activeConversation=null;
+let authMode='signup', user=null, profile=null, members=[], connections=[], requests=[], follows=[], conversations=[], activeConversation=null;
 const EMPTY='data:image/svg+xml;charset=utf8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120"><rect width="120" height="120" rx="60" fill="#dceeff"/><circle cx="60" cy="45" r="22" fill="#58aaff"/><path d="M22 110c8-29 23-42 38-42s30 13 38 42" fill="#58aaff"/></svg>');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function showToast(t){toast.textContent=t;toast.classList.add('show');setTimeout(()=>toast.classList.remove('show'),2200)}
@@ -58,8 +58,8 @@ async function loadTimeline(filter='for-you'){
   const opportunities=jobError?[]:(jobs||[]).map(x=>({...x,kind:'job'}));
   let items=[...social,...opportunities].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
   if(filter==='following'){
-    const acceptedIds=connections.filter(c=>c.status==='accepted').map(c=>c.requester_id===user.id?c.addressee_id:c.requester_id);
-    items=items.filter(x=>(x.kind==='post'?x.user_id:x.business_id)===user.id||acceptedIds.includes(x.kind==='post'?x.user_id:x.business_id));
+    const followedIds=follows.map(f=>f.following_id);
+    items=items.filter(x=>followedIds.includes(x.kind==='post'?x.user_id:x.business_id));
   }
   return items;
 }
@@ -226,13 +226,72 @@ function bindFeedActions(){
   $$('[data-open-opportunity]').forEach(b=>b.onclick=()=>setPage('opportunities'));
 }
 
-async function loadSocial(){const [{data:m},{data:c},{data:r}]=await Promise.all([sb.from('profiles').select('*').neq('id',user.id).order('created_at',{ascending:false}),sb.from('connections').select('*').or(`requester_id.eq.${user.id},addressee_id.eq.${user.id}`),sb.from('connections').select('*,profiles!connections_requester_id_fkey(*)').eq('addressee_id',user.id).eq('status','pending')]);members=m||[];connections=c||[];requests=r||[];renderRequestPreview()}
+async function loadSocial(){const [{data:m},{data:c},{data:r},{data:f}]=await Promise.all([sb.from('profiles').select('*').neq('id',user.id).order('created_at',{ascending:false}),sb.from('connections').select('*').or(`requester_id.eq.${user.id},addressee_id.eq.${user.id}`),sb.from('connections').select('*,profiles!connections_requester_id_fkey(*)').eq('addressee_id',user.id).eq('status','pending'),sb.from('follows').select('*').eq('follower_id',user.id)]);members=m||[];connections=c||[];requests=r||[];follows=f||[];renderRequestPreview()}
 function relationship(id){const c=connections.find(x=>(x.requester_id===user.id&&x.addressee_id===id)||(x.addressee_id===user.id&&x.requester_id===id));if(!c)return null;return c}
-async function discover(){await loadSocial();main.innerHTML=`<div class="page-title"><div><h1>Discover</h1><p class="muted">Find real creators, brands, and agencies.</p></div><input class="field" id="memberSearch" placeholder="Search members" style="max-width:280px"></div><div class="grid" id="memberGrid"></div>`;const render=()=>{const q=$('#memberSearch').value.toLowerCase();const filtered=members.filter(m=>(m.full_name+' '+(m.headline||'')+' '+m.account_type).toLowerCase().includes(q));$('#memberGrid').innerHTML=filtered.length?filtered.map(m=>{const rel=relationship(m.id);let action=rel?.status==='accepted'?`<button class="primary" data-message-user="${m.id}">Message</button>`:rel?.status==='pending'?`<button class="secondary" disabled>${rel.requester_id===user.id?'Request sent':'Respond in requests'}</button>`:`<button class="primary" data-connect="${m.id}">Connect</button>`;return `<article class="card member"><div class="member-top"><img class="avatar" src="${esc(m.avatar_url||EMPTY)}"><div><h3 style="margin:0">${esc(m.full_name)} ${m.is_verified?'<span class="verified">✓</span>':''}${m.is_founder?'<span class="badge">Founder</span>':''}</h3><div class="muted">${esc(m.headline||m.account_type||'member')}</div></div></div><p class="muted">${esc(m.bio||'New member')}</p><div class="member-actions">${action}<button class="secondary" data-view="${m.id}">View profile</button></div></article>`}).join(''):`<section class="card empty"><h2>No members found</h2></section>`;bindDiscover()};$('#memberSearch').oninput=render;render()}
-function bindDiscover(){$$('[data-connect]').forEach(b=>b.onclick=async()=>{const {error}=await sb.from('connections').insert({requester_id:user.id,addressee_id:b.dataset.connect,status:'pending'});if(error)showToast(error.message);else{showToast('Connection request sent');discover()}});$$('[data-view]').forEach(b=>b.onclick=()=>showMember(b.dataset.view));$$('[data-message-user]').forEach(b=>b.onclick=()=>startConversation(b.dataset.messageUser))}
+async function discover(){
+  await loadSocial();
+  main.innerHTML=`<div class="page-title"><div><h1>Discover</h1><p class="muted">Find and follow real creators, brands, and agencies.</p></div><input class="field" id="memberSearch" placeholder="Search members" style="max-width:280px"></div><div class="grid" id="memberGrid"></div>`;
+  const render=()=>{
+    const q=$('#memberSearch').value.toLowerCase();
+    const filtered=members.filter(m=>(m.full_name+' '+(m.username||'')+' '+(m.headline||'')+' '+m.account_type).toLowerCase().includes(q));
+    $('#memberGrid').innerHTML=filtered.length?filtered.map(m=>{
+      const rel=relationship(m.id);
+      const isFollowing=follows.some(f=>f.following_id===m.id);
+      const connectionAction=rel?.status==='accepted'
+        ?`<button class="primary" data-message-user="${m.id}">Message</button>`
+        :rel?.status==='pending'
+          ?`<button class="secondary" disabled>${rel.requester_id===user.id?'Request sent':'Respond in Network'}</button>`
+          :`<button class="secondary" data-connect="${m.id}">Connect</button>`;
+      const followAction=isFollowing
+        ?`<button class="secondary" data-unfollow="${m.id}">Following</button>`
+        :`<button class="primary" data-follow="${m.id}">Follow</button>`;
+      return `<article class="card member">
+        <div class="member-top"><img class="avatar" src="${esc(m.avatar_url||EMPTY)}"><div><h3 style="margin:0">${esc(m.full_name)} ${m.is_verified?'<span class="verified">✓</span>':''}${m.is_founder?'<span class="badge">Founder</span>':''}</h3><div class="muted">@${esc(m.username||'member')} · ${esc(m.headline||m.account_type||'member')}</div></div></div>
+        <p class="muted">${esc(m.bio||'New member')}</p>
+        <div class="member-actions">${followAction}${connectionAction}<button class="secondary" data-view="${m.id}">View profile</button></div>
+      </article>`
+    }).join(''):`<section class="card empty"><h2>No members found</h2></section>`;
+    bindDiscover()
+  };
+  $('#memberSearch').oninput=render;
+  render()
+}
+function bindDiscover(){
+  $$('[data-follow]').forEach(b=>b.onclick=async()=>{
+    const {error}=await sb.from('follows').insert({follower_id:user.id,following_id:b.dataset.follow});
+    if(error)showToast(error.message);else{showToast('Following member');discover()}
+  });
+  $$('[data-unfollow]').forEach(b=>b.onclick=async()=>{
+    const {error}=await sb.from('follows').delete().eq('follower_id',user.id).eq('following_id',b.dataset.unfollow);
+    if(error)showToast(error.message);else{showToast('Unfollowed');discover()}
+  });
+  $$('[data-connect]').forEach(b=>b.onclick=async()=>{
+    const {error}=await sb.from('connections').insert({requester_id:user.id,addressee_id:b.dataset.connect,status:'pending'});
+    if(error)showToast(error.message);else{showToast('Connection request sent');discover()}
+  });
+  $$('[data-view]').forEach(b=>b.onclick=()=>showMember(b.dataset.view));
+  $$('[data-message-user]').forEach(b=>b.onclick=()=>startConversation(b.dataset.messageUser))
+}
 function showMember(id){const m=members.find(x=>x.id===id);if(!m)return;modal(m.full_name,`<div class="row"><img class="avatar" style="width:82px;height:82px" src="${esc(m.avatar_url||EMPTY)}"><div><strong>${esc(m.headline||m.account_type)}</strong><p class="muted">${esc(m.bio||'No bio yet.')}</p></div></div>`)}
 
-async function connectionsPage(){await loadSocial();const accepted=connections.filter(c=>c.status==='accepted').map(c=>members.find(m=>m.id===(c.requester_id===user.id?c.addressee_id:c.requester_id))).filter(Boolean);main.innerHTML=`<div class="page-title"><div><h1>Connections</h1><p class="muted">Manage requests and people you have connected with.</p></div></div><section class="card" style="padding:18px"><h2>Pending requests</h2><div id="requestsList"></div></section><h2>My connections</h2><div class="grid">${accepted.length?accepted.map(m=>`<article class="card member"><div class="member-top"><img class="avatar" src="${esc(m.avatar_url||EMPTY)}"><div><strong>${esc(m.full_name)}</strong><div class="muted">${esc(m.headline||m.account_type)}</div></div></div><div class="member-actions"><button class="primary" data-message-user="${m.id}">Message</button></div></article>`).join(''):`<section class="card empty"><h2>No connections yet</h2><button class="primary" data-page="discover">Discover members</button></section>`}</div>`;renderRequests();$$('[data-message-user]').forEach(b=>b.onclick=()=>startConversation(b.dataset.messageUser));$$('[data-page]').forEach(b=>b.onclick=()=>setPage(b.dataset.page))}
+async function connectionsPage(){
+  await loadSocial();
+  const accepted=connections.filter(c=>c.status==='accepted').map(c=>members.find(m=>m.id===(c.requester_id===user.id?c.addressee_id:c.requester_id))).filter(Boolean);
+  const followed=follows.map(f=>members.find(m=>m.id===f.following_id)).filter(Boolean);
+  main.innerHTML=`<div class="page-title"><div><h1>My network</h1><p class="muted">People you follow, your connections, and pending requests.</p></div></div>
+    <section class="card" style="padding:18px"><h2>Pending requests</h2><div id="requestsList"></div></section>
+    <h2>Following</h2>
+    <div class="grid">${followed.length?followed.map(m=>`<article class="card member"><div class="member-top"><img class="avatar" src="${esc(m.avatar_url||EMPTY)}"><div><strong>${esc(m.full_name)}</strong><div class="muted">@${esc(m.username||'member')} · ${esc(m.headline||m.account_type)}</div></div></div><div class="member-actions"><button class="primary" data-message-user="${m.id}">Message</button><button class="secondary" data-unfollow-network="${m.id}">Following</button></div></article>`).join(''):`<section class="card empty"><h2>You are not following anyone yet</h2><button class="primary" data-page="discover">Discover members</button></section>`}</div>
+    <h2>Connections</h2>
+    <div class="grid">${accepted.length?accepted.map(m=>`<article class="card member"><div class="member-top"><img class="avatar" src="${esc(m.avatar_url||EMPTY)}"><div><strong>${esc(m.full_name)}</strong><div class="muted">${esc(m.headline||m.account_type)}</div></div></div><div class="member-actions"><button class="primary" data-message-user="${m.id}">Message</button></div></article>`).join(''):`<section class="card empty"><h2>No connections yet</h2><button class="primary" data-page="discover">Discover members</button></section>`}</div>`;
+  renderRequests();
+  $$('[data-message-user]').forEach(b=>b.onclick=()=>startConversation(b.dataset.messageUser));
+  $$('[data-unfollow-network]').forEach(b=>b.onclick=async()=>{
+    const {error}=await sb.from('follows').delete().eq('follower_id',user.id).eq('following_id',b.dataset.unfollowNetwork);
+    if(error)showToast(error.message);else{showToast('Unfollowed');connectionsPage()}
+  });
+  $$('[data-page]').forEach(b=>b.onclick=()=>setPage(b.dataset.page))
+}
 function renderRequests(){const el=$('#requestsList');if(!el)return;el.innerHTML=requests.length?requests.map(r=>`<div class="request row"><img class="avatar" src="${esc(r.profiles?.avatar_url||EMPTY)}"><div style="flex:1"><strong>${esc(r.profiles?.full_name||'Member')}</strong><div class="muted">${esc(r.profiles?.headline||r.profiles?.account_type||'member')}</div></div><button class="primary" data-accept="${r.id}">Accept</button><button class="secondary" data-decline="${r.id}">Decline</button></div>`).join(''):'<p class="muted">No pending requests.</p>';$$('[data-accept]').forEach(b=>b.onclick=async()=>{await sb.from('connections').update({status:'accepted',responded_at:new Date().toISOString()}).eq('id',b.dataset.accept);showToast('Connection accepted');connectionsPage()});$$('[data-decline]').forEach(b=>b.onclick=async()=>{await sb.from('connections').delete().eq('id',b.dataset.decline);connectionsPage()})}
 function renderRequestPreview(){const el=$('#requestPreview');if(!el)return;el.innerHTML=requests.length?requests.slice(0,3).map(r=>`<div class="request"><strong>${esc(r.profiles?.full_name||'Member')}</strong><div class="muted">Wants to connect</div></div>`).join(''):'No pending requests.'}
 $('#notificationsBtn').onclick=()=>setPage('connections');
