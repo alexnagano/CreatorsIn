@@ -231,13 +231,61 @@ function bindFeedActions(){
 
 async function loadSocial(){const [{data:m},{data:c},{data:r},{data:f}]=await Promise.all([sb.from('profiles').select('*').neq('id',user.id).order('created_at',{ascending:false}),sb.from('connections').select('*').or(`requester_id.eq.${user.id},addressee_id.eq.${user.id}`),sb.from('connections').select('*,profiles!connections_requester_id_fkey(*)').eq('addressee_id',user.id).eq('status','pending'),sb.from('follows').select('*').eq('follower_id',user.id)]);members=m||[];connections=c||[];requests=r||[];follows=f||[];renderRequestPreview()}
 function relationship(id){const c=connections.find(x=>(x.requester_id===user.id&&x.addressee_id===id)||(x.addressee_id===user.id&&x.requester_id===id));if(!c)return null;return c}
+function recommendationScore(member){
+  let score=0;
+  const myNiche=(profile.niche||'').toLowerCase();
+  const theirNiche=(member.niche||'').toLowerCase();
+  const myLocation=(profile.location||'').toLowerCase();
+  const theirLocation=(member.location||'').toLowerCase();
+
+  if(myNiche&&theirNiche&&myNiche===theirNiche)score+=50;
+  else if(myNiche&&theirNiche&&(theirNiche.includes(myNiche)||myNiche.includes(theirNiche)))score+=25;
+
+  if(myLocation&&theirLocation&&myLocation===theirLocation)score+=18;
+  if(profile.account_type==='creator'&&['brand','agency'].includes(member.account_type))score+=22;
+  if(['brand','agency'].includes(profile.account_type)&&member.account_type==='creator')score+=22;
+  if(member.is_verified)score+=8;
+  if(member.is_founder)score+=5;
+
+  const rel=relationship(member.id);
+  if(rel?.status==='accepted')score-=20;
+  if(follows.some(f=>f.following_id===member.id))score-=15;
+
+  const ageDays=(Date.now()-new Date(member.created_at||Date.now()).getTime())/86400000;
+  if(ageDays<14)score+=8;
+  return score;
+}
+function recommendedMembers(){
+  return [...members]
+    .filter(m=>m.is_discoverable!==false)
+    .sort((a,b)=>recommendationScore(b)-recommendationScore(a)||new Date(b.created_at)-new Date(a.created_at))
+    .slice(0,12);
+}
+function memberRecommendationReason(member){
+  const reasons=[];
+  if(profile.niche&&member.niche&&profile.niche.toLowerCase()===member.niche.toLowerCase())reasons.push(`Also in ${member.niche}`);
+  if(profile.location&&member.location&&profile.location.toLowerCase()===member.location.toLowerCase())reasons.push(`Near ${member.location}`);
+  if(profile.account_type==='creator'&&member.account_type==='brand')reasons.push('Brand you may want to work with');
+  if(profile.account_type==='creator'&&member.account_type==='agency')reasons.push('Agency you may want to connect with');
+  if(['brand','agency'].includes(profile.account_type)&&member.account_type==='creator')reasons.push('Creator matching your account');
+  if(member.is_verified)reasons.push('Verified member');
+  if(!reasons.length)reasons.push('Recommended for your network');
+  return reasons[0];
+}
 async function discover(){
   await loadSocial();
-  main.innerHTML=`<div class="page-title"><div><h1>Discover</h1><p class="muted">Find and follow real creators, brands, and agencies.</p></div><input class="field" id="memberSearch" placeholder="Search members" style="max-width:280px"></div><div class="grid" id="memberGrid"></div>`;
-  const render=()=>{
-    const q=$('#memberSearch').value.toLowerCase();
-    const filtered=members.filter(m=>(m.full_name+' '+(m.username||'')+' '+(m.headline||'')+' '+m.account_type).toLowerCase().includes(q));
-    $('#memberGrid').innerHTML=filtered.length?filtered.map(m=>{
+  main.innerHTML=`<div class="page-title"><div><h1>Discover</h1><p class="muted">Personalized recommendations based on your profile, niche, location, and account type.</p></div><input class="field" id="memberSearch" placeholder="Search all members" style="max-width:300px"></div>
+    <section id="recommendedSection">
+      <div class="page-title" style="margin-top:0"><div><h2>Recommended for you</h2><p class="muted">A smaller, more relevant group of members to explore.</p></div></div>
+      <div class="grid" id="recommendedGrid"></div>
+    </section>
+    <section class="hidden" id="searchResultsSection">
+      <div class="page-title"><div><h2>Search results</h2><p class="muted">Members matching your search.</p></div><button class="secondary" id="clearMemberSearch">Clear search</button></div>
+      <div class="grid" id="memberGrid"></div>
+    </section>`;
+
+  const renderCards=(list,target)=>{
+    $(target).innerHTML=list.length?list.map(m=>{
       const rel=relationship(m.id);
       const isFollowing=follows.some(f=>f.following_id===m.id);
       const connectionAction=rel?.status==='accepted'
@@ -249,15 +297,41 @@ async function discover(){
         ?`<button class="secondary" data-unfollow="${m.id}">Following</button>`
         :`<button class="primary" data-follow="${m.id}">Follow</button>`;
       return `<article class="card member">
-        <div class="member-top"><img class="avatar" src="${esc(m.avatar_url||EMPTY)}"><div><h3 style="margin:0">${esc(m.full_name)} ${m.is_verified?'<span class="verified">✓</span>':''}${m.is_founder?'<span class="badge">Founder</span>':''}</h3><div class="muted">@${esc(m.username||'member')} · ${esc(m.headline||m.account_type||'member')}</div></div></div>
+        <div class="member-top">
+          <img class="avatar" src="${esc(m.avatar_url||EMPTY)}">
+          <div>
+            <h3 style="margin:0">${esc(m.full_name)} ${m.is_verified?'<span class="verified">✓</span>':''}${m.is_founder?'<span class="badge">Founder</span>':''}</h3>
+            <div class="muted">@${esc(m.username||'member')} · ${esc(m.headline||m.account_type||'member')}</div>
+          </div>
+        </div>
         <p class="muted">${esc(m.bio||'New member')}</p>
+        <div class="chip" style="margin-bottom:12px">${esc(memberRecommendationReason(m))}</div>
         <div class="member-actions">${followAction}${connectionAction}<button class="secondary" data-view="${m.id}">View profile</button></div>
       </article>`
-    }).join(''):`<section class="card empty"><h2>No members found</h2></section>`;
+    }).join(''):`<section class="card empty"><h2>No recommendations yet</h2><p class="muted">Complete your niche, location, and headline so CreatorsIn can recommend relevant members.</p></section>`;
     bindDiscover()
   };
-  $('#memberSearch').oninput=render;
-  render()
+
+  renderCards(recommendedMembers(),'#recommendedGrid');
+
+  const search=$('#memberSearch');
+  const runSearch=()=>{
+    const q=search.value.trim().toLowerCase();
+    if(!q){
+      $('#recommendedSection').classList.remove('hidden');
+      $('#searchResultsSection').classList.add('hidden');
+      return;
+    }
+    const filtered=members.filter(m=>
+      (m.full_name+' '+(m.username||'')+' '+(m.headline||'')+' '+(m.niche||'')+' '+(m.location||'')+' '+(m.account_type||''))
+      .toLowerCase().includes(q)
+    );
+    $('#recommendedSection').classList.add('hidden');
+    $('#searchResultsSection').classList.remove('hidden');
+    renderCards(filtered,'#memberGrid')
+  };
+  search.oninput=runSearch;
+  $('#clearMemberSearch').onclick=()=>{search.value='';runSearch();search.focus()}
 }
 function bindDiscover(){
   $$('[data-follow]').forEach(b=>b.onclick=async()=>{
@@ -363,32 +437,10 @@ async function renderThreads(){
     <div class="thread-copy">
       <div class="thread-name">${esc(i.other?.full_name||'Conversation')} ${i.other?.is_verified?'<span class="verified">✓</span>':''} ${i.pref?.is_pinned?'<span class="pinned-mark">📌</span>':''}</div>
       <div class="thread-preview">${i.last?.sender_id===user.id?'You: ':''}${esc(i.last?.body||i.other?.headline||'Start the conversation')}</div>
-      <div class="thread-time">${formatThreadTime(i.updated_at)} ${i.pref?.is_muted?'· Muted':''}</div>
     </div>
-    <div class="thread-actions">
-      ${i.unread?'<span class="unread-dot"></span>':''}
-      <button class="thread-more" data-thread-menu="${i.id}" aria-label="Chat options">•••</button>
-      <div class="thread-popup hidden" id="thread-popup-${i.id}">
-        <button data-sidebar-pin="${i.id}" data-value="${i.pref?.is_pinned?'false':'true'}">${i.pref?.is_pinned?'Unpin chat':'Pin chat'}</button>
-        <button data-sidebar-mute="${i.id}" data-value="${i.pref?.is_muted?'false':'true'}">${i.pref?.is_muted?'Unmute chat':'Mute chat'}</button>
-        <button class="danger" data-sidebar-delete="${i.id}">Delete chat</button>
-      </div>
-    </div>
+    <div style="text-align:right"><div class="thread-time">${formatThreadTime(i.updated_at)}</div><div class="thread-icons">${i.pref?.is_muted?'🔕':''}${i.unread?'<span class="unread-dot"></span>':''}</div></div>
   </div>`).join(''):'<p class="muted" style="padding:18px">No conversations yet.</p>';
-  $$('[data-conversation]').forEach(b=>b.onclick=e=>{
-    if(e.target.closest('[data-thread-menu],[data-sidebar-pin],[data-sidebar-mute],[data-sidebar-delete]'))return;
-    openConversation(b.dataset.conversation)
-  });
-  $$('[data-thread-menu]').forEach(b=>b.onclick=e=>{
-    e.stopPropagation();
-    const popup=$('#thread-popup-'+b.dataset.threadMenu);
-    $$('.thread-popup').forEach(p=>{if(p!==popup)p.classList.add('hidden')});
-    popup.classList.toggle('hidden')
-  });
-  $$('[data-sidebar-pin]').forEach(b=>b.onclick=e=>{e.stopPropagation();setConversationPreference(b.dataset.sidebarPin,'is_pinned',b.dataset.value==='true')});
-  $$('[data-sidebar-mute]').forEach(b=>b.onclick=e=>{e.stopPropagation();setConversationPreference(b.dataset.sidebarMute,'is_muted',b.dataset.value==='true')});
-  $$('[data-sidebar-delete]').forEach(b=>b.onclick=e=>{e.stopPropagation();deleteChatForMe(b.dataset.sidebarDelete)});
-  document.addEventListener('click',()=>$$('.thread-popup').forEach(p=>p.classList.add('hidden')),{once:true})
+  $$('[data-conversation]').forEach(b=>b.onclick=()=>openConversation(b.dataset.conversation))
 }
 function cleanupRealtimeChannels(){
   [messageChannel,typingChannel,inboxChannel].forEach(ch=>{if(ch)sb.removeChannel(ch)});
@@ -427,7 +479,7 @@ async function openConversation(id){
   $('#chatPanel').innerHTML=`<div class="chat-head">
     <img class="chat-head-avatar" src="${esc(other?.avatar_url||EMPTY)}">
     <div class="chat-head-copy"><strong>${esc(other?.full_name||'Conversation')} ${other?.is_verified?'<span class="verified">✓</span>':''}</strong><span id="chatPresence">@${esc(other?.username||'member')} · ${esc(other?.headline||other?.account_type||'member')}</span></div>
-    <div class="chat-menu-wrap"><button class="icon-btn" id="chatMenuBtn" data-tooltip="Chat options" aria-label="Chat options">•••</button>
+    <div class="chat-menu-wrap"><button class="icon-btn" id="chatMenuBtn" aria-label="Chat options">•••</button>
       <div class="chat-menu hidden" id="chatMenu">
         <button id="pinChatBtn">${pref?.is_pinned?'Unpin chat':'Pin chat'}</button>
         <button id="muteChatBtn">${pref?.is_muted?'Unmute chat':'Mute chat'}</button>
