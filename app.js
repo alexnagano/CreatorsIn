@@ -488,21 +488,140 @@ async function renderPublicProfileTab(member,tab){
 }
 async function connectionsPage(){
   await loadSocial();
-  const accepted=connections.filter(c=>c.status==='accepted').map(c=>members.find(m=>m.id===(c.requester_id===user.id?c.addressee_id:c.requester_id))).filter(Boolean);
-  const followed=follows.map(f=>members.find(m=>m.id===f.following_id)).filter(Boolean);
-  main.innerHTML=`<div class="page-title"><div><h1>My network</h1><p class="muted">People you follow, your connections, and pending requests.</p></div></div>
-    <section class="card" style="padding:18px"><h2>Pending requests</h2><div id="requestsList"></div></section>
-    <h2>Following</h2>
-    <div class="grid">${followed.length?followed.map(m=>`<article class="card member"><div class="member-top"><img class="avatar" src="${esc(m.avatar_url||EMPTY)}"><div><button class="profile-link" data-profile-id="${m.id}"><strong>${esc(m.full_name)}</strong></button><div class="muted">@${esc(m.username||'member')} · ${esc(m.headline||m.account_type)}</div></div></div><div class="member-actions"><button class="primary" data-message-user="${m.id}">Message</button><button class="secondary" data-unfollow-network="${m.id}">Following</button></div></article>`).join(''):`<section class="card empty"><h2>You are not following anyone yet</h2><button class="primary" data-page="discover">Discover members</button></section>`}</div>
-    <h2>Connections</h2>
-    <div class="grid">${accepted.length?accepted.map(m=>`<article class="card member"><div class="member-top"><img class="avatar" src="${esc(m.avatar_url||EMPTY)}"><div><button class="profile-link" data-profile-id="${m.id}"><strong>${esc(m.full_name)}</strong></button><div class="muted">${esc(m.headline||m.account_type)}</div></div></div><div class="member-actions"><button class="primary" data-message-user="${m.id}">Message</button></div></article>`).join(''):`<section class="card empty"><h2>No connections yet</h2><button class="primary" data-page="discover">Discover members</button></section>`}</div>`;
-  renderRequests();bindProfileLinks();
-  $$('[data-message-user]').forEach(b=>b.onclick=()=>startConversation(b.dataset.messageUser));
-  $$('[data-unfollow-network]').forEach(b=>b.onclick=async()=>{
-    const {error}=await sb.from('follows').delete().eq('follower_id',user.id).eq('following_id',b.dataset.unfollowNetwork);
-    if(error)showToast(error.message);else{showToast('Unfollowed');connectionsPage()}
+
+  const followedProfiles=follows
+    .map(f=>members.find(m=>m.id===f.following_id))
+    .filter(Boolean);
+
+  let currentFilter='all';
+  let currentSearch='';
+
+  const followerCountResult=await sb.from('follows').select('*',{count:'exact',head:true}).eq('following_id',user.id);
+  const followerCount=followerCountResult.count||0;
+
+  main.innerHTML=`<div class="following-page">
+    <section class="card following-hero">
+      <div class="following-hero-top">
+        <div>
+          <h1 style="margin:0 0 6px">Following</h1>
+          <p class="muted" style="margin:0">Keep up with creators, brands, and agencies you care about.</p>
+        </div>
+        <div class="following-stats">
+          <div class="following-stat"><strong>${followedProfiles.length}</strong><span>Following</span></div>
+          <div class="following-stat"><strong>${followerCount}</strong><span>Followers</span></div>
+        </div>
+      </div>
+      <div class="following-toolbar">
+        <input class="field" id="followingSearch" placeholder="Search who you follow">
+        <div class="following-filters">
+          <button class="following-filter active" data-following-filter="all">All</button>
+          <button class="following-filter" data-following-filter="creator">Creators</button>
+          <button class="following-filter" data-following-filter="brand">Brands</button>
+          <button class="following-filter" data-following-filter="agency">Agencies</button>
+        </div>
+      </div>
+    </section>
+
+    ${followedProfiles.length?`
+    <section>
+      <div class="page-title" style="margin-bottom:10px"><div><h2>Recently active</h2><p class="muted">Quick access to people you follow.</p></div></div>
+      <div class="active-strip" id="activeFollowingStrip"></div>
+    </section>`:''}
+
+    <section>
+      <div class="page-title" style="margin-bottom:10px"><div><h2>Your following</h2><p class="muted">Message, view, or unfollow any profile.</p></div></div>
+      <div class="following-list" id="followingList"></div>
+    </section>
+
+    <section>
+      <div class="page-title" style="margin-bottom:10px"><div><h2>Suggested for you</h2><p class="muted">Public profiles you may want to follow next.</p></div></div>
+      <div class="suggested-grid" id="followingSuggestions"></div>
+    </section>
+  </div>`;
+
+  const getFiltered=()=>followedProfiles.filter(m=>{
+    const matchesType=currentFilter==='all'||m.account_type===currentFilter;
+    const text=`${m.full_name||''} ${m.username||''} ${m.headline||''} ${m.niche||''}`.toLowerCase();
+    return matchesType&&text.includes(currentSearch);
   });
-  $$('[data-page]').forEach(b=>b.onclick=()=>setPage(b.dataset.page))
+
+  const renderActive=()=>{
+    const strip=$('#activeFollowingStrip');
+    if(!strip)return;
+    strip.innerHTML=followedProfiles.slice(0,10).map(m=>`<div class="active-person" data-profile-id="${m.id}">
+      <div class="active-avatar-wrap">
+        <img class="active-avatar" src="${esc(m.avatar_url||EMPTY)}">
+        <span class="active-dot"></span>
+      </div>
+      <div class="active-name">${esc(m.full_name)}</div>
+      <div class="active-status">Active recently</div>
+    </div>`).join('');
+    bindProfileLinks()
+  };
+
+  const renderFollowing=()=>{
+    const list=getFiltered();
+    $('#followingList').innerHTML=list.length?list.map(m=>`<article class="card following-card">
+      <img class="following-avatar" src="${esc(m.avatar_url||EMPTY)}">
+      <div class="following-info">
+        <button class="profile-link" data-profile-id="${m.id}">
+          <h3>${esc(m.full_name)} ${m.is_verified?'<span class="verified">✓</span>':''}${m.is_founder?'<span class="badge">Founder</span>':''}</h3>
+        </button>
+        <div class="muted">@${esc(m.username||'member')} · ${esc(m.headline||m.account_type||'member')}</div>
+        <div class="following-meta">
+          <span class="chip">${esc(m.account_type||'member')}</span>
+          ${m.niche?`<span class="chip">${esc(m.niche)}</span>`:''}
+          ${m.location?`<span class="chip">${esc(m.location)}</span>`:''}
+        </div>
+      </div>
+      <div class="following-actions">
+        <button class="primary" data-message-user="${m.id}">Message</button>
+        <button class="secondary" data-profile-id="${m.id}">View profile</button>
+        <button class="secondary" data-unfollow-network="${m.id}">Following</button>
+      </div>
+    </article>`).join(''):`<section class="card empty-following"><h2>No matches</h2><p class="muted">Try another search or filter.</p></section>`;
+
+    $$('[data-message-user]').forEach(b=>b.onclick=()=>startConversation(b.dataset.messageUser));
+    $$('[data-unfollow-network]').forEach(b=>b.onclick=async()=>{
+      const {error}=await sb.from('follows').delete().eq('follower_id',user.id).eq('following_id',b.dataset.unfollowNetwork);
+      if(error)return showToast(error.message);
+      showToast('Unfollowed');
+      connectionsPage()
+    });
+    bindProfileLinks()
+  };
+
+  const suggestions=members
+    .filter(m=>!follows.some(f=>f.following_id===m.id))
+    .filter(m=>m.id!==user.id)
+    .slice(0,6);
+
+  $('#followingSuggestions').innerHTML=suggestions.length?suggestions.map(m=>`<article class="card suggested-card">
+    <img class="avatar" src="${esc(m.avatar_url||EMPTY)}">
+    <button class="profile-link" data-profile-id="${m.id}" style="margin-top:10px">
+      <h3 style="margin:0">${esc(m.full_name)} ${m.is_verified?'<span class="verified">✓</span>':''}</h3>
+    </button>
+    <div class="muted">@${esc(m.username||'member')}</div>
+    <p class="muted">${esc(m.headline||m.account_type||'member')}</p>
+    <button class="primary" data-follow-suggestion="${m.id}" style="width:100%">Follow</button>
+  </article>`).join(''):`<section class="card empty-following"><p class="muted">You already follow everyone available.</p></section>`;
+
+  $$('[data-follow-suggestion]').forEach(b=>b.onclick=async()=>{
+    const {error}=await sb.from('follows').insert({follower_id:user.id,following_id:b.dataset.followSuggestion});
+    if(error)return showToast(error.message);
+    showToast('Following member');
+    connectionsPage()
+  });
+
+  $('#followingSearch').oninput=e=>{currentSearch=e.target.value.trim().toLowerCase();renderFollowing()};
+  $$('[data-following-filter]').forEach(b=>b.onclick=()=>{
+    currentFilter=b.dataset.followingFilter;
+    $$('[data-following-filter]').forEach(x=>x.classList.toggle('active',x===b));
+    renderFollowing()
+  });
+
+  renderActive();
+  renderFollowing()
 }
 function renderRequests(){const el=$('#requestsList');if(!el)return;el.innerHTML=requests.length?requests.map(r=>`<div class="request row"><img class="avatar" src="${esc(r.profiles?.avatar_url||EMPTY)}"><div style="flex:1"><strong>${esc(r.profiles?.full_name||'Member')}</strong><div class="muted">${esc(r.profiles?.headline||r.profiles?.account_type||'member')}</div></div><button class="primary" data-accept="${r.id}">Accept</button><button class="secondary" data-decline="${r.id}">Decline</button></div>`).join(''):'<p class="muted">No pending requests.</p>';$$('[data-accept]').forEach(b=>b.onclick=async()=>{await sb.from('connections').update({status:'accepted',responded_at:new Date().toISOString()}).eq('id',b.dataset.accept);showToast('Connection accepted');connectionsPage()});$$('[data-decline]').forEach(b=>b.onclick=async()=>{await sb.from('connections').delete().eq('id',b.dataset.decline);connectionsPage()})}
 function renderRequestPreview(){const el=$('#requestPreview');if(!el)return;el.innerHTML=requests.length?requests.slice(0,3).map(r=>`<div class="request"><strong>${esc(r.profiles?.full_name||'Member')}</strong><div class="muted">Wants to connect</div></div>`).join(''):'No pending requests.'}
