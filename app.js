@@ -233,10 +233,26 @@ function renderSocialPost(p,likes=[],comments=[],reposts=[],options={}){
     <div class="social-post-body">${p.content?`<p>${renderPostText(p.content)}</p>`:''}${p.link_url?`<a class="post-link" href="${esc(p.link_url)}" target="_blank" rel="noopener"><strong>Open link ↗</strong><br>${esc(p.link_url)}</a>`:''}</div>
     ${p.media_url?(p.media_type==='video'?`<video class="post-media" controls preload="metadata" src="${esc(p.media_url)}"></video>`:`<img class="post-media" loading="lazy" src="${esc(p.media_url)}" alt="Post media">`):''}
     <div class="post-actions">
-      <button class="post-action ${liked?'active':''}" data-like="${p.id}">♡ ${postLikes.length}</button>
-      <button class="post-action" data-toggle-comments="${p.id}">↩ ${postComments.length}</button>
-      <button class="post-action ${reposted?'reposted':''}" data-repost="${p.id}">⟳ ${postReposts.length}</button>
-      <button class="post-action" data-copy-post="${p.id}">↗ Share</button>
+      <button class="post-action ${liked?'active':''}" data-like="${p.id}" data-tooltip="Like this post and support the creator" aria-label="Like this post">
+        <span class="post-action-icon">♡</span>
+        <span class="post-action-count">${postLikes.length}</span>
+        <span class="post-action-label">Like</span>
+      </button>
+      <button class="post-action" data-toggle-comments="${p.id}" data-tooltip="Comment and join the conversation" aria-label="Comment on this post">
+        <span class="post-action-icon">↩</span>
+        <span class="post-action-count">${postComments.length}</span>
+        <span class="post-action-label">Comment</span>
+      </button>
+      <button class="post-action ${reposted?'reposted':''}" data-repost="${p.id}" data-tooltip="Repost this content to help it reach more people" aria-label="Repost this post">
+        <span class="post-action-icon">⟳</span>
+        <span class="post-action-count">${postReposts.length}</span>
+        <span class="post-action-label">Repost</span>
+      </button>
+      <button class="post-action" data-copy-post="${p.id}" data-tooltip="Copy a shareable link to this post" aria-label="Share this post">
+        <span class="post-action-icon">↗</span>
+        <span class="post-action-count">Share</span>
+        <span class="post-action-label">Share</span>
+      </button>
     </div>
     <div class="comments hidden" id="comments-${p.id}"><div>${postComments.map(c=>`<div class="comment-row"><img class="avatar" src="${esc(c.profiles?.avatar_url||EMPTY)}"><div class="comment-body"><button class="profile-link" data-profile-id="${c.user_id}"><strong>${esc(c.profiles?.full_name||'Member')}</strong></button><div>${renderPostText(c.content)}</div></div></div>`).join('')}</div><div class="comment-form"><input class="field" id="comment-input-${p.id}" placeholder="Write a reply"><button class="primary" data-comment="${p.id}">Reply</button></div></div>
   </article>`
