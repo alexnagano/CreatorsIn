@@ -242,7 +242,18 @@ function bindFeedActions(){
   $$('[data-open-opportunity]').forEach(b=>b.onclick=()=>setPage('opportunities'));
 }
 
-async function loadSocial(){const [{data:m},{data:c},{data:r},{data:f}]=await Promise.all([sb.from('profiles').select('*').neq('id',user.id).order('created_at',{ascending:false}),sb.from('connections').select('*').or(`requester_id.eq.${user.id},addressee_id.eq.${user.id}`),sb.from('connections').select('*,profiles!connections_requester_id_fkey(*)').eq('addressee_id',user.id).eq('status','pending'),sb.from('follows').select('*').eq('follower_id',user.id)]);members=m||[];connections=c||[];requests=r||[];follows=f||[];renderRequestPreview()}
+async function loadSocial(){
+  const [{data:m},{data:f}]=await Promise.all([
+    sb.from('profiles').select('*').neq('id',user.id).order('created_at',{ascending:false}),
+    sb.from('follows').select('*').eq('follower_id',user.id)
+  ]);
+  members=(m||[]).filter(x=>x.is_discoverable!==false);
+  follows=f||[];
+  connections=[];
+  requests=[];
+  const preview=$('#requestPreview');
+  if(preview)preview.textContent='Following is open — no connection approval required.';
+}
 function relationship(id){const c=connections.find(x=>(x.requester_id===user.id&&x.addressee_id===id)||(x.addressee_id===user.id&&x.requester_id===id));if(!c)return null;return c}
 function recommendationScore(member){
   let score=0;
@@ -259,9 +270,6 @@ function recommendationScore(member){
   if(['brand','agency'].includes(profile.account_type)&&member.account_type==='creator')score+=22;
   if(member.is_verified)score+=8;
   if(member.is_founder)score+=5;
-
-  const rel=relationship(member.id);
-  if(rel?.status==='accepted')score-=20;
   if(follows.some(f=>f.following_id===member.id))score-=15;
 
   const ageDays=(Date.now()-new Date(member.created_at||Date.now()).getTime())/86400000;
@@ -301,11 +309,6 @@ async function discover(){
     $(target).innerHTML=list.length?list.map(m=>{
       const rel=relationship(m.id);
       const isFollowing=follows.some(f=>f.following_id===m.id);
-      const connectionAction=rel?.status==='accepted'
-        ?`<button class="primary" data-message-user="${m.id}">Message</button>`
-        :rel?.status==='pending'
-          ?`<button class="secondary" disabled>${rel.requester_id===user.id?'Request sent':'Respond in Network'}</button>`
-          :`<button class="secondary" data-connect="${m.id}">Connect</button>`;
       const followAction=isFollowing
         ?`<button class="secondary" data-unfollow="${m.id}">Following</button>`
         :`<button class="primary" data-follow="${m.id}">Follow</button>`;
@@ -319,7 +322,7 @@ async function discover(){
         </div>
         <p class="muted">${esc(m.bio||'New member')}</p>
         <div class="chip" style="margin-bottom:12px">${esc(memberRecommendationReason(m))}</div>
-        <div class="member-actions">${followAction}${connectionAction}<button class="secondary" data-view="${m.id}">View profile</button></div>
+        <div class="member-actions">${followAction}<button class="secondary" data-view="${m.id}">View profile</button></div>
       </article>`
     }).join(''):`<section class="card empty"><h2>No recommendations yet</h2><p class="muted">Complete your niche, location, and headline so CreatorsIn can recommend relevant members.</p></section>`;
     bindDiscover();bindProfileLinks()
@@ -355,8 +358,6 @@ function bindDiscover(){
     const {error}=await sb.from('follows').delete().eq('follower_id',user.id).eq('following_id',b.dataset.unfollow);
     if(error)showToast(error.message);else{showToast('Unfollowed');discover()}
   });
-  $$('[data-connect]').forEach(b=>b.onclick=async()=>{
-    const {error}=await sb.from('connections').insert({requester_id:user.id,addressee_id:b.dataset.connect,status:'pending'});
     if(error)showToast(error.message);else{showToast('Connection request sent');discover()}
   });
   $$('[data-view]').forEach(b=>b.onclick=()=>showMember(b.dataset.view));
@@ -366,13 +367,12 @@ async function showMember(id){
   return openMemberProfile(id);
 }
 async function fetchProfileCounts(memberId){
-  const [{count:followers},{count:following},{count:postsCount},{count:connectionsCount}]=await Promise.all([
+  const [{count:followers},{count:following},{count:postsCount}]=await Promise.all([
     sb.from('follows').select('*',{count:'exact',head:true}).eq('following_id',memberId),
     sb.from('follows').select('*',{count:'exact',head:true}).eq('follower_id',memberId),
-    sb.from('posts').select('*',{count:'exact',head:true}).eq('user_id',memberId),
-    sb.from('connections').select('*',{count:'exact',head:true}).eq('status','accepted').or(`requester_id.eq.${memberId},addressee_id.eq.${memberId}`)
+    sb.from('posts').select('*',{count:'exact',head:true}).eq('user_id',memberId)
   ]);
-  return {followers:followers||0,following:following||0,posts:postsCount||0,connections:connectionsCount||0}
+  return {followers:followers||0,following:following||0,posts:postsCount||0}
 }
 async function renderPublicProfile(memberId){
   await loadSocial();
@@ -380,13 +380,7 @@ async function renderPublicProfile(memberId){
   if(error){main.innerHTML=`<section class="card empty"><h2>Profile not found</h2><p class="muted">${esc(error.message)}</p></section>`;return}
   const counts=await fetchProfileCounts(memberId);
   const isSelf=memberId===user.id;
-  const rel=relationship(memberId);
   const isFollowing=follows.some(f=>f.following_id===memberId);
-  const connectionButton=isSelf?'':rel?.status==='accepted'
-    ?`<button class="secondary" disabled>Connected</button>`
-    :rel?.status==='pending'
-      ?`<button class="secondary" disabled>${rel.requester_id===user.id?'Request sent':'Request received'}</button>`
-      :`<button class="secondary" data-profile-connect="${memberId}">Connect</button>`;
   const followButton=isSelf?'':isFollowing
     ?`<button class="secondary" data-profile-unfollow="${memberId}">Following</button>`
     :`<button class="primary" data-profile-follow="${memberId}">Follow</button>`;
@@ -404,12 +398,12 @@ async function renderPublicProfile(memberId){
             <div class="muted">@${esc(member.username||'member')} · ${esc(member.headline||member.account_type||'member')}</div>
             ${member.location?`<div class="muted">${esc(member.location)}</div>`:''}
           </div>
-          <div class="public-profile-actions">${followButton}${connectionButton}${messageButton}${isSelf?'<button class="primary" data-page="profile">Edit profile</button>':''}</div>
+          <div class="public-profile-actions">${followButton}${messageButton}${isSelf?'<button class="primary" data-page="profile">Edit profile</button>':''}</div>
         </div>
         <div class="profile-counts">
           <button><strong>${counts.followers}</strong><span>Followers</span></button>
           <button><strong>${counts.following}</strong><span>Following</span></button>
-          <button><strong>${counts.connections}</strong><span>Connections</span></button>
+          
           <button><strong>${counts.posts}</strong><span>Posts</span></button>
         </div>
         <div class="share-profile-row">
@@ -436,8 +430,6 @@ async function renderPublicProfile(memberId){
     const {error}=await sb.from('follows').delete().eq('follower_id',user.id).eq('following_id',memberId);
     if(error)return showToast(error.message);showToast('Unfollowed');await renderPublicProfile(memberId)
   });
-  $('[data-profile-connect]')?.addEventListener('click',async()=>{
-    const {error}=await sb.from('connections').insert({requester_id:user.id,addressee_id:memberId,status:'pending'});
     if(error)return showToast(error.message);showToast('Connection request sent');await renderPublicProfile(memberId)
   });
   $('[data-profile-message]')?.addEventListener('click',()=>startConversation(memberId));
@@ -488,21 +480,29 @@ async function renderPublicProfileTab(member,tab){
 }
 async function connectionsPage(){
   await loadSocial();
-  const accepted=connections.filter(c=>c.status==='accepted').map(c=>members.find(m=>m.id===(c.requester_id===user.id?c.addressee_id:c.requester_id))).filter(Boolean);
   const followed=follows.map(f=>members.find(m=>m.id===f.following_id)).filter(Boolean);
-  main.innerHTML=`<div class="page-title"><div><h1>My network</h1><p class="muted">People you follow, your connections, and pending requests.</p></div></div>
-    <section class="card" style="padding:18px"><h2>Pending requests</h2><div id="requestsList"></div></section>
-    <h2>Following</h2>
-    <div class="grid">${followed.length?followed.map(m=>`<article class="card member"><div class="member-top"><img class="avatar" src="${esc(m.avatar_url||EMPTY)}"><div><button class="profile-link" data-profile-id="${m.id}"><strong>${esc(m.full_name)}</strong></button><div class="muted">@${esc(m.username||'member')} · ${esc(m.headline||m.account_type)}</div></div></div><div class="member-actions"><button class="primary" data-message-user="${m.id}">Message</button><button class="secondary" data-unfollow-network="${m.id}">Following</button></div></article>`).join(''):`<section class="card empty"><h2>You are not following anyone yet</h2><button class="primary" data-page="discover">Discover members</button></section>`}</div>
-    <h2>Connections</h2>
-    <div class="grid">${accepted.length?accepted.map(m=>`<article class="card member"><div class="member-top"><img class="avatar" src="${esc(m.avatar_url||EMPTY)}"><div><button class="profile-link" data-profile-id="${m.id}"><strong>${esc(m.full_name)}</strong></button><div class="muted">${esc(m.headline||m.account_type)}</div></div></div><div class="member-actions"><button class="primary" data-message-user="${m.id}">Message</button></div></article>`).join(''):`<section class="card empty"><h2>No connections yet</h2><button class="primary" data-page="discover">Discover members</button></section>`}</div>`;
-  renderRequests();bindProfileLinks();
+  main.innerHTML=`<div class="page-title"><div><h1>Following</h1><p class="muted">Everyone you follow on CreatorsIn.</p></div></div>
+    <div class="grid">${followed.length?followed.map(m=>`<article class="card member">
+      <div class="member-top">
+        <img class="avatar" src="${esc(m.avatar_url||EMPTY)}">
+        <div>
+          <button class="profile-link" data-profile-id="${m.id}"><strong>${esc(m.full_name)} ${m.is_verified?'<span class="verified">✓</span>':''}</strong></button>
+          <div class="muted">@${esc(m.username||'member')} · ${esc(m.headline||m.account_type||'member')}</div>
+        </div>
+      </div>
+      <p class="muted">${esc(m.bio||'New member')}</p>
+      <div class="member-actions">
+        <button class="primary" data-message-user="${m.id}">Message</button>
+        <button class="secondary" data-unfollow-network="${m.id}">Following</button>
+      </div>
+    </article>`).join(''):`<section class="card empty"><h2>You are not following anyone yet</h2><button class="primary" data-page="discover">Discover members</button></section>`}</div>`;
   $$('[data-message-user]').forEach(b=>b.onclick=()=>startConversation(b.dataset.messageUser));
   $$('[data-unfollow-network]').forEach(b=>b.onclick=async()=>{
     const {error}=await sb.from('follows').delete().eq('follower_id',user.id).eq('following_id',b.dataset.unfollowNetwork);
     if(error)showToast(error.message);else{showToast('Unfollowed');connectionsPage()}
   });
-  $$('[data-page]').forEach(b=>b.onclick=()=>setPage(b.dataset.page))
+  $$('[data-page]').forEach(b=>b.onclick=()=>setPage(b.dataset.page));
+  bindProfileLinks()
 }
 function renderRequests(){const el=$('#requestsList');if(!el)return;el.innerHTML=requests.length?requests.map(r=>`<div class="request row"><img class="avatar" src="${esc(r.profiles?.avatar_url||EMPTY)}"><div style="flex:1"><strong>${esc(r.profiles?.full_name||'Member')}</strong><div class="muted">${esc(r.profiles?.headline||r.profiles?.account_type||'member')}</div></div><button class="primary" data-accept="${r.id}">Accept</button><button class="secondary" data-decline="${r.id}">Decline</button></div>`).join(''):'<p class="muted">No pending requests.</p>';$$('[data-accept]').forEach(b=>b.onclick=async()=>{await sb.from('connections').update({status:'accepted',responded_at:new Date().toISOString()}).eq('id',b.dataset.accept);showToast('Connection accepted');connectionsPage()});$$('[data-decline]').forEach(b=>b.onclick=async()=>{await sb.from('connections').delete().eq('id',b.dataset.decline);connectionsPage()})}
 function renderRequestPreview(){const el=$('#requestPreview');if(!el)return;el.innerHTML=requests.length?requests.slice(0,3).map(r=>`<div class="request"><strong>${esc(r.profiles?.full_name||'Member')}</strong><div class="muted">Wants to connect</div></div>`).join(''):'No pending requests.'}
@@ -955,8 +955,9 @@ function applyThemeChoice(choice){
 function openSettings(){
   $('#settingsWrap').classList.remove('hidden');
   $('#settingsEmail').textContent=user?.email||profile?.email||'';
-  const discoverable=profile?.is_discoverable!==false;
-  $('#discoverableSwitch').classList.toggle('on',discoverable);
+  const discoverable=true;
+  $('#discoverableSwitch')?.classList.add('on');
+  if($('#discoverableSwitch'))$('#discoverableSwitch').disabled=true;
   const choice=localStorage.getItem('creatorsin-theme-choice')||'light';
   applyThemeChoice(choice);
 }
@@ -978,15 +979,6 @@ function initializeSettings(){
   $('#closeSettingsBtn')?.addEventListener('click',closeSettings);
   $('#settingsWrap')?.addEventListener('click',e=>{if(e.target.id==='settingsWrap')closeSettings()});
   $$('[data-theme-choice]').forEach(b=>b.onclick=()=>applyThemeChoice(b.dataset.themeChoice));
-
-  $('#discoverableSwitch')?.addEventListener('click',async()=>{
-    const next=!$('#discoverableSwitch').classList.contains('on');
-    const {error}=await sb.from('profiles').update({is_discoverable:next}).eq('id',user.id);
-    if(error)return showToast(error.message);
-    profile.is_discoverable=next;
-    $('#discoverableSwitch').classList.toggle('on',next);
-    showToast(next?'Profile is visible in Discover':'Profile hidden from Discover');
-  });
 
   const localSwitches=[
     ['dmSwitch','creatorsin-allow-dms',true],

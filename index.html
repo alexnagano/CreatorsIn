@@ -234,7 +234,7 @@ html[data-theme="dark"] .public-cover{background:linear-gradient(135deg,#173957,
   <nav class="nav">
     <button class="active" data-page="feed">Home</button>
     <button data-page="discover">Discover</button>
-    <button data-page="connections">Network</button>
+    <button data-page="connections">Following</button>
     <button data-page="opportunities">Opportunities</button>
     <button data-page="messages">Messages</button>
     <button data-page="profile">Profile</button>
@@ -249,7 +249,7 @@ html[data-theme="dark"] .public-cover{background:linear-gradient(135deg,#173957,
 <div class="layout">
   <aside class="card side">
     <div class="identity"><img class="avatar" id="sideAvatar"><div><strong id="sideName">Member</strong><div class="muted" id="sideType">Creator</div></div></div>
-    <button class="active" data-page="feed">Home</button><button data-page="discover">Discover</button><button data-page="connections">Network</button><button data-page="opportunities">Opportunities</button><button data-page="messages">Messages</button><button data-page="profile">Profile</button>
+    <button class="active" data-page="feed">Home</button><button data-page="discover">Discover</button><button data-page="connections">Following</button><button data-page="opportunities">Opportunities</button><button data-page="messages">Messages</button><button data-page="profile">Profile</button>
   </aside>
   <main class="main" id="main"></main>
   <aside class="right">
@@ -291,8 +291,8 @@ html[data-theme="dark"] .public-cover{background:linear-gradient(135deg,#173957,
     <section class="settings-section">
       <h3>Account</h3>
       <div class="setting-row">
-        <div class="setting-copy"><strong>Profile visibility</strong><span>Control whether your profile appears in Discover.</span></div>
-        <button class="switch" id="discoverableSwitch" aria-label="Toggle profile visibility"></button>
+        <div class="setting-copy"><strong>Profile visibility</strong><span>All profiles are public and appear in Discover.</span></div>
+        <button class="switch" id="discoverableSwitch" disabled aria-label="Toggle profile visibility"></button>
       </div>
       <div class="setting-row">
         <div class="setting-copy"><strong>Email</strong><span id="settingsEmail">Signed-in email</span></div>
