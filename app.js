@@ -37,6 +37,7 @@ $('#logoutBtn').onclick=async()=>{await sb.auth.signOut();location.reload()};
 async function ensureProfile(){const md=user.user_metadata||{};await sb.from('profiles').upsert({id:user.id,email:user.email,full_name:md.full_name||md.name||user.email.split('@')[0],account_type:md.account_type||'creator',avatar_url:md.avatar_url||md.picture||null},{onConflict:'id'});const {data}=await sb.from('profiles').select('*').eq('id',user.id).single();profile=data}
 function syncIdentity(){if(!profile)return;$('#sideName').textContent=profile.full_name;$('#sideType').textContent=(profile.is_founder?'Founder · ':'')+(profile.account_type||'creator');$('#sideAvatar').src=profile.avatar_url||EMPTY}
 function setPage(page){
+  if(page==='dashboard')return dashboardPage();
   $$('[data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===page));
   const pages={feed,discover,connections:connectionsPage,opportunities:opportunitiesPage,messages:messagesPage,profile:profilePage};
   (pages[page]||feed)();
@@ -151,6 +152,37 @@ function setupMentionAutocomplete(textarea,menu){
   });
   textarea.addEventListener('blur',()=>setTimeout(hide,120));
 }
+
+async function dashboardPage(){
+  await loadSocial();
+  const [{count:postCount},{count:followerCount},{count:followingCount},{count:applicationCount},{data:unreadRows},{data:recentOpportunities},{data:pinnedRows}]=await Promise.all([
+    sb.from('posts').select('*',{count:'exact',head:true}).eq('user_id',user.id),
+    sb.from('follows').select('*',{count:'exact',head:true}).eq('following_id',user.id),
+    sb.from('follows').select('*',{count:'exact',head:true}).eq('follower_id',user.id),
+    sb.from('applications').select('*',{count:'exact',head:true}).eq('applicant_id',user.id),
+    sb.from('messages').select('id').neq('sender_id',user.id).is('read_at',null),
+    sb.from('opportunities').select('id,title,description,compensation,platforms,location,created_at,profiles!opportunities_business_id_fkey(full_name,avatar_url)').eq('status','open').order('created_at',{ascending:false}).limit(4),
+    sb.from('profile_pinned_posts').select('post_id').eq('profile_id',user.id)
+  ]);
+  const fields=[profile.full_name,profile.username,profile.headline,profile.bio,profile.avatar_url,profile.niche,profile.location,profile.website_url];
+  const socials=[profile.instagram_url,profile.tiktok_url,profile.youtube_url,profile.twitch_url,profile.x_url,profile.linkedin_url,profile.discord_url];
+  const complete=fields.filter(Boolean).length+(socials.some(Boolean)?1:0)+((pinnedRows||[]).length?1:0);
+  const strength=Math.min(100,Math.round((complete/(fields.length+2))*100));
+  const hour=new Date().getHours(),greeting=hour<12?'Good morning':hour<18?'Good afternoon':'Good evening';
+  const suggestions=members.filter(m=>!follows.some(f=>f.following_id===m.id)).slice(0,4);
+  const tasks=[
+    !profile.avatar_url&&{icon:'📷',title:'Add a profile picture',copy:'Help brands recognize and trust your profile.',action:'My Business',page:'profile'},
+    strength<90&&{icon:'✨',title:'Complete your creator portfolio',copy:`Your profile is ${strength}% complete.`,action:'Improve profile',page:'profile'},
+    !(pinnedRows||[]).length&&{icon:'📌',title:'Pin your best content',copy:'Show brands your strongest posts first.',action:'View posts',page:'profile'},
+    !(postCount||0)&&{icon:'✍️',title:'Publish your first post',copy:'Share your work, ideas, or a recent creator win.',action:'Create post',page:'feed'},
+    (unreadRows||[]).length>0&&{icon:'💬',title:'Reply to your inbox',copy:`You have ${(unreadRows||[]).length} unread message${(unreadRows||[]).length===1?'':'s'}.`,action:'Open inbox',page:'messages'},
+    {icon:'💼',title:'Review new opportunities',copy:'Look for work that matches your niche.',action:'Open marketplace',page:'opportunities'}
+  ].filter(Boolean).slice(0,5);
+  main.innerHTML=`<div class="dashboard-page"><section class="card dashboard-hero"><h1>${greeting}, ${esc((profile.full_name||'Creator').split(' ')[0])}!</h1><p class="muted">Here is what is happening with your creator business today.</p><div class="dashboard-actions"><button class="primary" data-dashboard-page="profile">Build My Business</button><button class="secondary" data-dashboard-page="opportunities">Find Opportunities</button><button class="secondary" data-dashboard-page="messages">Open Inbox</button></div></section><div class="dashboard-grid"><section class="card dashboard-stat"><strong>${followerCount||0}</strong><span>Followers</span></section><section class="card dashboard-stat"><strong>${followingCount||0}</strong><span>Following</span></section><section class="card dashboard-stat"><strong>${postCount||0}</strong><span>Posts</span></section><section class="card dashboard-stat"><strong>${applicationCount||0}</strong><span>Applications</span></section></div><div class="dashboard-layout"><div style="display:grid;gap:16px"><section class="card dashboard-card"><div class="profile-section-head"><div><h2>Your next steps</h2><p class="muted">Actions that strengthen your creator business.</p></div></div>${tasks.map(t=>`<div class="dashboard-task"><div class="dashboard-task-icon">${t.icon}</div><div><strong>${esc(t.title)}</strong><div class="muted">${esc(t.copy)}</div></div><button class="secondary" data-dashboard-page="${t.page}">${esc(t.action)}</button></div>`).join('')}</section><section class="card dashboard-card"><div class="profile-section-head"><div><h2>Opportunities for you</h2><p class="muted">Newest real opportunities on CreatorsIn.</p></div><button class="secondary" data-dashboard-page="opportunities">View all</button></div>${(recentOpportunities||[]).length?(recentOpportunities||[]).map(o=>`<div class="dashboard-opportunity"><strong>${esc(o.title)}</strong><div class="muted">${esc(o.profiles?.full_name||'Business')} · ${formatRelativeTime(o.created_at)}</div><p>${esc(o.description||'')}</p></div>`).join(''):`<div class="profile-empty"><p class="muted">No open opportunities yet.</p></div>`}</section></div><div style="display:grid;gap:16px;align-content:start"><section class="card dashboard-card"><div class="profile-section-head"><div><h2>Profile strength</h2><p class="muted">Make your creator business easier to hire.</p></div><strong>${strength}%</strong></div><div class="dashboard-progress"><i style="width:${strength}%"></i></div><button class="primary" data-dashboard-page="profile" style="width:100%;margin-top:15px">Improve My Business</button></section><section class="card dashboard-card"><div class="profile-section-head"><div><h2>People to know</h2><p class="muted">Profiles worth exploring.</p></div></div>${suggestions.length?suggestions.map(m=>`<div class="dashboard-person"><img src="${esc(m.avatar_url||EMPTY)}"><div style="min-width:0;flex:1"><button class="profile-link" data-profile-id="${m.id}"><strong>${esc(m.full_name)}</strong></button><div class="muted">@${esc(m.username||'member')} · ${esc(m.headline||m.account_type||'member')}</div></div></div>`).join(''):`<p class="muted">No suggestions yet.</p>`}<button class="secondary" data-dashboard-page="discover" style="width:100%;margin-top:12px">Open Discover</button></section><section class="card dashboard-card"><h2 style="margin-top:0">Inbox</h2><p class="muted">${(unreadRows||[]).length?`You have ${(unreadRows||[]).length} unread message${(unreadRows||[]).length===1?'':'s'}.`:'You are all caught up.'}</p><button class="secondary" data-dashboard-page="messages" style="width:100%">Open Inbox</button></section></div></div></div>`;
+  $$('[data-dashboard-page]').forEach(b=>b.onclick=()=>setPage(b.dataset.dashboardPage));
+  bindProfileLinks();
+}
+
 async function feed(){
   await loadSocial();
   main.innerHTML=`<div class="social-shell">
@@ -229,7 +261,7 @@ function renderSocialPost(p,likes=[],comments=[],reposts=[],options={}){
   const engagement=postLikes.length+postComments.length+(postReposts.length*2);
   return `<article class="card social-post">
     ${options.trending?`<div class="repost-context"><span class="engagement-label">🔥 ${engagement} engagement points</span>${options.rank?`<span>Trending #${options.rank}</span>`:''}</div>`:''}
-    <div class="social-post-header"><img class="avatar" src="${esc(p.profiles?.avatar_url||EMPTY)}"><div style="flex:1"><button class="profile-link" data-profile-id="${p.user_id}"><strong>${esc(p.profiles?.full_name||'Member')} ${p.profiles?.is_verified?'<span class="verified">✓</span>':''}${p.profiles?.is_founder?'<span class="badge">Founder</span>':''}</strong></button><div class="muted">@${esc(p.profiles?.username||'member')} · ${new Date(p.created_at).toLocaleString()}</div></div><div style="display:flex;gap:6px;align-items:center">${options.showPin?(options.pinned?`<button class="secondary pin-control" data-unpin-profile-post="${p.id}">Pinned</button>`:`<button class="secondary pin-control" data-pin-profile-post="${p.id}">Pin</button>`):''}${p.user_id===user.id?`<button class="secondary danger" data-delete-post="${p.id}">Delete</button>`:''}</div></div>
+    <div class="social-post-header"><img class="avatar" src="${esc(p.profiles?.avatar_url||EMPTY)}"><div style="flex:1"><button class="profile-link" data-profile-id="${p.user_id}"><strong>${esc(p.profiles?.full_name||'Member')} ${p.profiles?.is_verified?'<span class="verified">✓</span>':''}${p.profiles?.is_founder?'<span class="badge">Founder</span>':''}</strong></button><div class="muted">@${esc(p.profiles?.username||'member')} · ${formatRelativeTime(p.created_at)}</div></div><div style="display:flex;gap:6px;align-items:center">${options.showPin?(options.pinned?`<button class="secondary pin-control" data-unpin-profile-post="${p.id}">Pinned</button>`:`<button class="secondary pin-control" data-pin-profile-post="${p.id}">Pin</button>`):''}${p.user_id===user.id?`<button class="secondary danger" data-delete-post="${p.id}">Delete</button>`:''}</div></div>
     <div class="social-post-body">${p.content?`<p>${renderPostText(p.content)}</p>`:''}${p.link_url?`<a class="post-link" href="${esc(p.link_url)}" target="_blank" rel="noopener"><strong>Open link ↗</strong><br>${esc(p.link_url)}</a>`:''}</div>
     ${p.media_url?(p.media_type==='video'?`<video class="post-media" controls preload="metadata" src="${esc(p.media_url)}"></video>`:`<img class="post-media" loading="lazy" src="${esc(p.media_url)}" alt="Post media">`):''}
     <div class="post-actions">
@@ -258,7 +290,7 @@ function renderSocialPost(p,likes=[],comments=[],reposts=[],options={}){
   </article>`
 }
 function renderJobFeedItem(o){
-  return `<article class="card social-post"><div class="social-post-header"><img class="avatar" src="${esc(o.profiles?.avatar_url||EMPTY)}"><div style="flex:1"><button class="profile-link" data-profile-id="${o.business_id}"><strong>${esc(o.profiles?.full_name||'Business')} ${o.profiles?.is_verified?'<span class="verified">✓</span>':''}</strong></button><div class="muted">posted an opportunity · ${new Date(o.created_at).toLocaleString()}</div></div><span class="post-type">Opportunity</span></div><div class="social-post-body"><div class="job-card"><h3>${esc(o.title)}</h3><p>${esc(o.description)}</p><div class="job-meta">${o.compensation?`<span class="chip">${esc(o.compensation)}</span>`:''}${o.opportunity_type?`<span class="chip">${esc(o.opportunity_type)}</span>`:''}${o.platforms?`<span class="chip">${esc(o.platforms)}</span>`:''}${o.location?`<span class="chip">${esc(o.location)}</span>`:''}</div>${o.deadline?`<div class="muted">Apply by ${new Date(o.deadline).toLocaleDateString()}</div>`:''}<button class="primary" data-open-opportunity="${o.id}" style="margin-top:12px">View opportunity</button></div></div></article>`
+  return `<article class="card social-post"><div class="social-post-header"><img class="avatar" src="${esc(o.profiles?.avatar_url||EMPTY)}"><div style="flex:1"><button class="profile-link" data-profile-id="${o.business_id}"><strong>${esc(o.profiles?.full_name||'Business')} ${o.profiles?.is_verified?'<span class="verified">✓</span>':''}</strong></button><div class="muted">posted an opportunity · ${formatRelativeTime(o.created_at)}</div></div><span class="post-type">Opportunity</span></div><div class="social-post-body"><div class="job-card"><h3>${esc(o.title)}</h3><p>${esc(o.description)}</p><div class="job-meta">${o.compensation?`<span class="chip">${esc(o.compensation)}</span>`:''}${o.opportunity_type?`<span class="chip">${esc(o.opportunity_type)}</span>`:''}${o.platforms?`<span class="chip">${esc(o.platforms)}</span>`:''}${o.location?`<span class="chip">${esc(o.location)}</span>`:''}</div>${o.deadline?`<div class="muted">Apply by ${new Date(o.deadline).toLocaleDateString()}</div>`:''}<button class="primary" data-open-opportunity="${o.id}" style="margin-top:12px">View opportunity</button></div></div></article>`
 }
 function refreshPostSurface(){
   if(document.querySelector('.discover-traction'))discover();
@@ -1352,7 +1384,23 @@ window.addEventListener('popstate',async event=>{
   else if(!(await routeFromLocation()))setPage('feed')
 });
 
-async function init(){const {data}=await sb.auth.getSession();if(!data.session){gate.classList.remove('hidden');return}user=data.session.user;gate.classList.add('hidden');await ensureProfile();syncIdentity();await loadSocial();initializeSettings();if(needsOnboarding(profile))launchOnboarding();else if(!(await routeFromLocation()))setPage('feed');sb.channel('messages-live').on('postgres_changes',{event:'INSERT',schema:'public',table:'messages'},payload=>{if(activeConversation&&payload.new.conversation_id===activeConversation)openConversation(activeConversation)}).subscribe()}
+async function init(){const {data}=await sb.auth.getSession();if(!data.session){gate.classList.remove('hidden');return}user=data.session.user;gate.classList.add('hidden');await ensureProfile();syncIdentity();await loadSocial();initializeSettings();if(needsOnboarding(profile))launchOnboarding();else if(!(await routeFromLocation()))setPage('dashboard');sb.channel('messages-live').on('postgres_changes',{event:'INSERT',schema:'public',table:'messages'},payload=>{if(activeConversation&&payload.new.conversation_id===activeConversation)openConversation(activeConversation)}).subscribe()}
 sb.auth.onAuthStateChange((_e,s)=>{if(s?.user&&!user){user=s.user;init()}else if(!s?.user&&user)location.reload()});
 init();
-})();
+})()
+function formatRelativeTime(value){
+  if(!value)return '';
+  const date=new Date(value);
+  const seconds=Math.max(0,Math.floor((Date.now()-date.getTime())/1000));
+  if(seconds<60)return 'now';
+  const minutes=Math.floor(seconds/60);
+  if(minutes<60)return `${minutes}m`;
+  const hours=Math.floor(minutes/60);
+  if(hours<24)return `${hours}h`;
+  const days=Math.floor(hours/24);
+  if(days<7)return `${days}d`;
+  const sameYear=date.getFullYear()===new Date().getFullYear();
+  return date.toLocaleDateString(undefined,sameYear?{month:'short',day:'numeric'}:{month:'short',day:'numeric',year:'numeric'});
+}
+
+;
