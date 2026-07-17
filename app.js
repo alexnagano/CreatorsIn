@@ -216,21 +216,21 @@ async function renderTimeline(filter){
       ]);likes=l||[];comments=c||[];
     }
     list.innerHTML=items.map(item=>item.kind==='job'?renderJobFeedItem(item):renderSocialPost(item,likes,comments)).join('');
-    bindFeedActions();
+    bindFeedActions();bindProfileLinks();
   }catch(e){list.innerHTML=`<section class="card empty"><h2>Could not load the feed</h2><p class="muted">${esc(e.message)}</p></section>`}
 }
 function renderSocialPost(p,likes,comments){
   const postLikes=likes.filter(x=>x.post_id===p.id),postComments=comments.filter(x=>x.post_id===p.id),liked=postLikes.some(x=>x.user_id===user.id);
   return `<article class="card social-post">
-    <div class="social-post-header"><img class="avatar" src="${esc(p.profiles?.avatar_url||EMPTY)}"><div style="flex:1"><strong>${esc(p.profiles?.full_name||'Member')} ${p.profiles?.is_verified?'<span class="verified">✓</span>':''}${p.profiles?.is_founder?'<span class="badge">Founder</span>':''}</strong><div class="muted">@${esc(p.profiles?.username||'member')} · ${new Date(p.created_at).toLocaleString()}</div></div>${p.user_id===user.id?`<button class="secondary danger" data-delete-post="${p.id}">Delete</button>`:''}</div>
+    <div class="social-post-header"><img class="avatar" src="${esc(p.profiles?.avatar_url||EMPTY)}"><div style="flex:1"><button class="profile-link" data-profile-id="${p.user_id}"><strong>${esc(p.profiles?.full_name||'Member')} ${p.profiles?.is_verified?'<span class="verified">✓</span>':''}${p.profiles?.is_founder?'<span class="badge">Founder</span>':''}</strong></button><div class="muted">@${esc(p.profiles?.username||'member')} · ${new Date(p.created_at).toLocaleString()}</div></div>${p.user_id===user.id?`<button class="secondary danger" data-delete-post="${p.id}">Delete</button>`:''}</div>
     <div class="social-post-body">${p.content?`<p>${renderPostText(p.content)}</p>`:''}${p.link_url?`<a class="post-link" href="${esc(p.link_url)}" target="_blank" rel="noopener"><strong>Open link ↗</strong><br>${esc(p.link_url)}</a>`:''}</div>
     ${p.media_url?(p.media_type==='video'?`<video class="post-media" controls preload="metadata" src="${esc(p.media_url)}"></video>`:`<img class="post-media" loading="lazy" src="${esc(p.media_url)}" alt="Post media">`):''}
     <div class="post-actions"><button class="post-action ${liked?'active':''}" data-like="${p.id}">♡ ${postLikes.length}</button><button class="post-action" data-toggle-comments="${p.id}">↩ ${postComments.length}</button><button class="post-action" data-copy-post="${p.id}">↗ Share</button><button class="post-action" data-message-author="${p.user_id}">✉ Message</button></div>
-    <div class="comments hidden" id="comments-${p.id}"><div>${postComments.map(c=>`<div class="comment-row"><img class="avatar" src="${esc(c.profiles?.avatar_url||EMPTY)}"><div class="comment-body"><strong>${esc(c.profiles?.full_name||'Member')}</strong><div>${renderPostText(c.content)}</div></div></div>`).join('')}</div><div class="comment-form"><input class="field" id="comment-input-${p.id}" placeholder="Write a reply"><button class="primary" data-comment="${p.id}">Reply</button></div></div>
+    <div class="comments hidden" id="comments-${p.id}"><div>${postComments.map(c=>`<div class="comment-row"><img class="avatar" src="${esc(c.profiles?.avatar_url||EMPTY)}"><div class="comment-body"><button class="profile-link" data-profile-id="${c.user_id}"><strong>${esc(c.profiles?.full_name||'Member')}</strong></button><div>${renderPostText(c.content)}</div></div></div>`).join('')}</div><div class="comment-form"><input class="field" id="comment-input-${p.id}" placeholder="Write a reply"><button class="primary" data-comment="${p.id}">Reply</button></div></div>
   </article>`
 }
 function renderJobFeedItem(o){
-  return `<article class="card social-post"><div class="social-post-header"><img class="avatar" src="${esc(o.profiles?.avatar_url||EMPTY)}"><div style="flex:1"><strong>${esc(o.profiles?.full_name||'Business')} ${o.profiles?.is_verified?'<span class="verified">✓</span>':''}</strong><div class="muted">posted an opportunity · ${new Date(o.created_at).toLocaleString()}</div></div><span class="post-type">Opportunity</span></div><div class="social-post-body"><div class="job-card"><h3>${esc(o.title)}</h3><p>${esc(o.description)}</p><div class="job-meta">${o.compensation?`<span class="chip">${esc(o.compensation)}</span>`:''}${o.opportunity_type?`<span class="chip">${esc(o.opportunity_type)}</span>`:''}${o.platforms?`<span class="chip">${esc(o.platforms)}</span>`:''}${o.location?`<span class="chip">${esc(o.location)}</span>`:''}</div>${o.deadline?`<div class="muted">Apply by ${new Date(o.deadline).toLocaleDateString()}</div>`:''}<button class="primary" data-open-opportunity="${o.id}" style="margin-top:12px">View opportunity</button></div></div></article>`
+  return `<article class="card social-post"><div class="social-post-header"><img class="avatar" src="${esc(o.profiles?.avatar_url||EMPTY)}"><div style="flex:1"><button class="profile-link" data-profile-id="${o.business_id}"><strong>${esc(o.profiles?.full_name||'Business')} ${o.profiles?.is_verified?'<span class="verified">✓</span>':''}</strong></button><div class="muted">posted an opportunity · ${new Date(o.created_at).toLocaleString()}</div></div><span class="post-type">Opportunity</span></div><div class="social-post-body"><div class="job-card"><h3>${esc(o.title)}</h3><p>${esc(o.description)}</p><div class="job-meta">${o.compensation?`<span class="chip">${esc(o.compensation)}</span>`:''}${o.opportunity_type?`<span class="chip">${esc(o.opportunity_type)}</span>`:''}${o.platforms?`<span class="chip">${esc(o.platforms)}</span>`:''}${o.location?`<span class="chip">${esc(o.location)}</span>`:''}</div>${o.deadline?`<div class="muted">Apply by ${new Date(o.deadline).toLocaleDateString()}</div>`:''}<button class="primary" data-open-opportunity="${o.id}" style="margin-top:12px">View opportunity</button></div></div></article>`
 }
 function bindFeedActions(){
   $$('[data-like]').forEach(b=>b.onclick=async()=>{const post_id=b.dataset.like;const {data}=await sb.from('post_likes').select('post_id').eq('post_id',post_id).eq('user_id',user.id).maybeSingle();if(data)await sb.from('post_likes').delete().eq('post_id',post_id).eq('user_id',user.id);else await sb.from('post_likes').insert({post_id,user_id:user.id});renderTimeline(document.querySelector('[data-feed-filter].active')?.dataset.feedFilter||'for-you')});
@@ -313,7 +313,7 @@ async function discover(){
         <div class="member-top">
           <img class="avatar" src="${esc(m.avatar_url||EMPTY)}">
           <div>
-            <h3 style="margin:0">${esc(m.full_name)} ${m.is_verified?'<span class="verified">✓</span>':''}${m.is_founder?'<span class="badge">Founder</span>':''}</h3>
+            <button class="profile-link" data-profile-id="${m.id}"><h3 style="margin:0">${esc(m.full_name)} ${m.is_verified?'<span class="verified">✓</span>':''}${m.is_founder?'<span class="badge">Founder</span>':''}</h3></button>
             <div class="muted">@${esc(m.username||'member')} · ${esc(m.headline||m.account_type||'member')}</div>
           </div>
         </div>
@@ -322,7 +322,7 @@ async function discover(){
         <div class="member-actions">${followAction}${connectionAction}<button class="secondary" data-view="${m.id}">View profile</button></div>
       </article>`
     }).join(''):`<section class="card empty"><h2>No recommendations yet</h2><p class="muted">Complete your niche, location, and headline so CreatorsIn can recommend relevant members.</p></section>`;
-    bindDiscover()
+    bindDiscover();bindProfileLinks()
   };
 
   renderCards(recommendedMembers(),'#recommendedGrid');
@@ -371,10 +371,10 @@ async function connectionsPage(){
   main.innerHTML=`<div class="page-title"><div><h1>My network</h1><p class="muted">People you follow, your connections, and pending requests.</p></div></div>
     <section class="card" style="padding:18px"><h2>Pending requests</h2><div id="requestsList"></div></section>
     <h2>Following</h2>
-    <div class="grid">${followed.length?followed.map(m=>`<article class="card member"><div class="member-top"><img class="avatar" src="${esc(m.avatar_url||EMPTY)}"><div><strong>${esc(m.full_name)}</strong><div class="muted">@${esc(m.username||'member')} · ${esc(m.headline||m.account_type)}</div></div></div><div class="member-actions"><button class="primary" data-message-user="${m.id}">Message</button><button class="secondary" data-unfollow-network="${m.id}">Following</button></div></article>`).join(''):`<section class="card empty"><h2>You are not following anyone yet</h2><button class="primary" data-page="discover">Discover members</button></section>`}</div>
+    <div class="grid">${followed.length?followed.map(m=>`<article class="card member"><div class="member-top"><img class="avatar" src="${esc(m.avatar_url||EMPTY)}"><div><button class="profile-link" data-profile-id="${m.id}"><strong>${esc(m.full_name)}</strong></button><div class="muted">@${esc(m.username||'member')} · ${esc(m.headline||m.account_type)}</div></div></div><div class="member-actions"><button class="primary" data-message-user="${m.id}">Message</button><button class="secondary" data-unfollow-network="${m.id}">Following</button></div></article>`).join(''):`<section class="card empty"><h2>You are not following anyone yet</h2><button class="primary" data-page="discover">Discover members</button></section>`}</div>
     <h2>Connections</h2>
-    <div class="grid">${accepted.length?accepted.map(m=>`<article class="card member"><div class="member-top"><img class="avatar" src="${esc(m.avatar_url||EMPTY)}"><div><strong>${esc(m.full_name)}</strong><div class="muted">${esc(m.headline||m.account_type)}</div></div></div><div class="member-actions"><button class="primary" data-message-user="${m.id}">Message</button></div></article>`).join(''):`<section class="card empty"><h2>No connections yet</h2><button class="primary" data-page="discover">Discover members</button></section>`}</div>`;
-  renderRequests();
+    <div class="grid">${accepted.length?accepted.map(m=>`<article class="card member"><div class="member-top"><img class="avatar" src="${esc(m.avatar_url||EMPTY)}"><div><button class="profile-link" data-profile-id="${m.id}"><strong>${esc(m.full_name)}</strong></button><div class="muted">${esc(m.headline||m.account_type)}</div></div></div><div class="member-actions"><button class="primary" data-message-user="${m.id}">Message</button></div></article>`).join(''):`<section class="card empty"><h2>No connections yet</h2><button class="primary" data-page="discover">Discover members</button></section>`}</div>`;
+  renderRequests();bindProfileLinks();
   $$('[data-message-user]').forEach(b=>b.onclick=()=>startConversation(b.dataset.messageUser));
   $$('[data-unfollow-network]').forEach(b=>b.onclick=async()=>{
     const {error}=await sb.from('follows').delete().eq('follower_id',user.id).eq('following_id',b.dataset.unfollowNetwork);
@@ -416,7 +416,7 @@ async function messagesPage(){
     const draw=()=>{
       const q=($('#messageMemberSearch').value||'').toLowerCase();
       const found=members.filter(m=>(m.full_name+' '+(m.username||'')+' '+(m.headline||'')+' '+(m.account_type||'')).toLowerCase().includes(q));
-      $('#messageMemberList').innerHTML=found.length?found.map(m=>`<button class="secondary" data-start="${m.id}" style="width:100%;margin:5px 0;text-align:left;display:flex;align-items:center;gap:10px"><img class="avatar" src="${esc(m.avatar_url||EMPTY)}"><span><strong>${esc(m.full_name)}</strong><br><small class="muted">@${esc(m.username||'member')} · ${esc(m.headline||m.account_type||'member')}</small></span></button>`).join(''):'<p class="muted">No members found.</p>';
+      $('#messageMemberList').innerHTML=found.length?found.map(m=>`<button class="secondary" data-start="${m.id}" style="width:100%;margin:5px 0;text-align:left;display:flex;align-items:center;gap:10px"><img class="avatar" src="${esc(m.avatar_url||EMPTY)}"><span><button class="profile-link" data-profile-id="${m.id}"><strong>${esc(m.full_name)}</strong></button><br><small class="muted">@${esc(m.username||'member')} · ${esc(m.headline||m.account_type||'member')}</small></span></button>`).join(''):'<p class="muted">No members found.</p>';
       $$('[data-start]').forEach(b=>b.onclick=()=>{closeModal();startConversation(b.dataset.start)});
     };
     $('#messageMemberSearch').oninput=draw;draw()
@@ -448,12 +448,12 @@ async function renderThreads(){
   $('#threadItems').innerHTML=items.length?items.map(i=>`<div class="thread ${activeConversation===i.id?'active':''}" data-conversation="${i.id}">
     <img class="thread-avatar" src="${esc(i.other?.avatar_url||EMPTY)}">
     <div class="thread-copy">
-      <div class="thread-name">${esc(i.other?.full_name||'Conversation')} ${i.other?.is_verified?'<span class="verified">✓</span>':''} ${i.pref?.is_pinned?'<span class="pinned-mark">📌</span>':''}</div>
+      <div class="thread-name"><button class="profile-link" data-profile-id="${i.other?.id||''}">${esc(i.other?.full_name||'Conversation')} ${i.other?.is_verified?'<span class="verified">✓</span>':''}</button> ${i.pref?.is_pinned?'<span class="pinned-mark">📌</span>':''}</div>
       <div class="thread-preview">${i.last?.sender_id===user.id?'You: ':''}${esc(i.last?.body||i.other?.headline||'Start the conversation')}</div>
     </div>
     <div style="text-align:right"><div class="thread-time">${formatThreadTime(i.updated_at)}</div><div class="thread-icons">${i.pref?.is_muted?'🔕':''}${i.unread?'<span class="unread-dot"></span>':''}</div></div>
   </div>`).join(''):'<p class="muted" style="padding:18px">No conversations yet.</p>';
-  $$('[data-conversation]').forEach(b=>b.onclick=()=>openConversation(b.dataset.conversation))
+  $$('[data-conversation]').forEach(b=>b.onclick=()=>openConversation(b.dataset.conversation));bindProfileLinks()
 }
 function cleanupRealtimeChannels(){
   [messageChannel,typingChannel,inboxChannel].forEach(ch=>{if(ch)sb.removeChannel(ch)});
@@ -469,7 +469,7 @@ function subscribeInbox(){
 }
 async function markConversationRead(id){
   await sb.rpc('mark_conversation_read',{target_conversation:id});
-  renderThreads()
+  renderThreads();bindProfileLinks()
 }
 function renderMessageRows(msgs,other){
   return (msgs||[]).map(m=>`<div class="message-row ${m.sender_id===user.id?'me':''}">
@@ -491,7 +491,7 @@ async function openConversation(id){
   currentChatOther=other;
   $('#chatPanel').innerHTML=`<div class="chat-head">
     <img class="chat-head-avatar" src="${esc(other?.avatar_url||EMPTY)}">
-    <div class="chat-head-copy"><strong>${esc(other?.full_name||'Conversation')} ${other?.is_verified?'<span class="verified">✓</span>':''}</strong><span id="chatPresence">@${esc(other?.username||'member')} · ${esc(other?.headline||other?.account_type||'member')}</span></div>
+    <div class="chat-head-copy"><button class="profile-link" data-profile-id="${other?.id||''}"><strong>${esc(other?.full_name||'Conversation')} ${other?.is_verified?'<span class="verified">✓</span>':''}</strong></button><span id="chatPresence">@${esc(other?.username||'member')} · ${esc(other?.headline||other?.account_type||'member')}</span></div>
     <div class="chat-menu-wrap"><button class="icon-btn" id="chatMenuBtn" aria-label="Chat options">•••</button>
       <div class="chat-menu hidden" id="chatMenu">
         <button id="pinChatBtn">${pref?.is_pinned?'Unpin chat':'Pin chat'}</button>
@@ -887,6 +887,23 @@ function initializeSettings(){
 
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change',()=>{
     if((localStorage.getItem('creatorsin-theme-choice')||'light')==='system')applyThemeChoice('system')
+  });
+}
+
+function openMemberProfile(memberId){
+  if(!memberId)return;
+  if(memberId===user.id){
+    setPage('profile');
+    return;
+  }
+  showMember(memberId);
+}
+function bindProfileLinks(){
+  $$('[data-profile-id]').forEach(el=>{
+    el.onclick=e=>{
+      e.stopPropagation();
+      openMemberProfile(el.dataset.profileId);
+    };
   });
 }
 

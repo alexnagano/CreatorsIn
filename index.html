@@ -1,6 +1,24 @@
 <!doctype html>
 <html lang="en" data-theme="light">
 <head>
+<script>
+(function(){
+  try{
+    if(localStorage.getItem('creatorsin-light-default-v2')!=='done'){
+      localStorage.setItem('creatorsin-theme-choice','light');
+      localStorage.setItem('cin_theme','light');
+      localStorage.setItem('creatorsin-light-default-v2','done');
+    }
+    var saved=localStorage.getItem('creatorsin-theme-choice')||localStorage.getItem('cin_theme')||'light';
+    var resolved=saved==='system'
+      ?(window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light')
+      :saved;
+    document.documentElement.dataset.theme=resolved;
+  }catch(e){
+    document.documentElement.dataset.theme='light';
+  }
+})();
+</script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>CreatorsIn</title>
@@ -77,6 +95,89 @@ header{height:78px;background:var(--panel);border-bottom:1px solid var(--line);d
 .mention-chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:8px}
 .mention-chip{display:inline-flex;align-items:center;gap:5px;padding:5px 9px;border-radius:999px;background:var(--soft);color:var(--blue2);font-weight:700;font-size:13px}
 
+
+/* Global scrolling repair */
+html,body{min-height:100%;height:auto;overflow-x:hidden;overflow-y:auto}
+body{position:relative}
+.app,.page,.main,.layout,.content{min-height:0}
+main{overflow:visible}
+header,.topbar{position:sticky;top:0;z-index:60}
+.onboarding{overflow-y:auto;align-items:start;padding:24px 20px}
+.onboarding-shell{margin:auto;max-height:none;overflow:visible}
+.modal-wrap{overflow-y:auto;padding:24px 16px;align-items:flex-start}
+.modal{margin:auto;max-height:none;overflow:visible}
+.mention-menu{overflow-y:auto;-webkit-overflow-scrolling:touch}
+@media(max-width:760px){
+  body{overflow-y:auto}
+  .onboarding{display:block}
+  .onboarding-shell{margin:16px auto 40px}
+  .modal-wrap{display:block}
+  .modal{margin:16px auto 40px}
+}
+
+
+/* Settings panel + persistent scrolling */
+html,body{min-height:100%;height:auto;overflow-y:auto!important;overflow-x:hidden}
+body{overscroll-behavior-y:auto}
+.settings-wrap{position:fixed;inset:0;z-index:220;background:rgba(15,23,42,.38);display:flex;justify-content:flex-end;overflow-y:auto}
+.settings-panel{width:min(430px,100%);min-height:100%;background:var(--panel);border-left:1px solid var(--line);box-shadow:var(--shadow);padding:22px;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.settings-head{display:flex;align-items:center;justify-content:space-between;gap:12px;position:sticky;top:0;background:var(--panel);padding-bottom:14px;z-index:3}
+.settings-section{padding:18px 0;border-top:1px solid var(--line)}
+.settings-section:first-of-type{border-top:0}
+.setting-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 0}
+.setting-copy strong{display:block}.setting-copy span{display:block;color:var(--muted);font-size:13px;margin-top:3px}
+.segmented{display:flex;background:var(--soft);border-radius:11px;padding:3px}
+.segmented button{border:0;background:transparent;color:var(--muted);padding:8px 11px;border-radius:8px;cursor:pointer}
+.segmented button.active{background:var(--panel);color:var(--text);box-shadow:0 1px 4px rgba(15,23,42,.12)}
+.switch{position:relative;width:46px;height:26px;border-radius:999px;background:var(--line);border:0;cursor:pointer}
+.switch:after{content:'';position:absolute;width:20px;height:20px;border-radius:50%;background:white;left:3px;top:3px;transition:.2s}
+.switch.on{background:var(--blue)}
+.switch.on:after{left:23px}
+.icon-btn[data-tooltip]{position:relative}
+.icon-btn[data-tooltip]:hover:after{content:attr(data-tooltip);position:absolute;right:0;top:calc(100% + 8px);background:var(--text);color:var(--panel);font-size:12px;padding:6px 8px;border-radius:7px;white-space:nowrap;z-index:240}
+.settings-danger{color:#dc2626}
+@media(max-width:760px){
+  .settings-wrap{display:block}
+  .settings-panel{width:100%;min-height:100vh;border-left:0}
+}
+
+
+/* Realtime messenger */
+.thread-list{display:grid!important;grid-template-columns:360px minmax(0,1fr)!important;min-height:720px;max-height:calc(100vh - 190px);overflow:hidden!important}
+.threads{border-right:1px solid var(--line);padding:0!important;overflow-y:auto!important;min-height:0;-webkit-overflow-scrolling:touch}
+.inbox-head{position:sticky;top:0;z-index:4;background:var(--panel);padding:14px;border-bottom:1px solid var(--line)}
+.thread{display:grid!important;grid-template-columns:54px minmax(0,1fr) auto;gap:11px;align-items:center;padding:12px 14px!important;border-radius:0!important;border-bottom:1px solid var(--line);cursor:pointer;position:relative}
+.thread:hover,.thread.active{background:var(--soft)}
+.thread-avatar{width:54px;height:54px;border-radius:50%;object-fit:cover;background:var(--soft)}
+.thread-copy{min-width:0}.thread-name{display:flex;align-items:center;gap:6px;font-weight:800}.thread-preview{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted);margin-top:3px}
+.thread-time{font-size:12px;color:var(--muted);white-space:nowrap}.unread-dot{width:9px;height:9px;background:#1597ff;border-radius:50%;display:inline-block}
+.thread-icons{display:flex;gap:5px;align-items:center;color:var(--muted);font-size:13px}
+.pinned-mark{color:var(--blue2)}
+.chat{min-width:0;min-height:0;overflow:hidden}
+.chat-head{display:flex!important;align-items:center;gap:11px;padding:12px 16px!important;position:sticky;top:0;background:var(--panel);z-index:5}
+.chat-head-avatar{width:44px;height:44px;border-radius:50%;object-fit:cover;background:var(--soft)}
+.chat-head-copy{flex:1;min-width:0}.chat-head-copy strong{display:block}.chat-head-copy span{display:block;color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chat-menu-wrap{position:relative}.chat-menu{position:absolute;right:0;top:calc(100% + 7px);width:190px;background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:6px;z-index:20}
+.chat-menu button{display:block;width:100%;text-align:left;border:0;background:transparent;color:var(--text);padding:10px;border-radius:8px;cursor:pointer}.chat-menu button:hover{background:var(--soft)}.chat-menu .danger{color:#dc2626}
+.chat-body{flex:1!important;max-height:none!important;min-height:0;overflow-y:auto!important;padding:18px!important;-webkit-overflow-scrolling:touch;background:var(--bg)}
+.message-row{display:flex;gap:8px;align-items:flex-end;margin:10px 0}.message-row.me{justify-content:flex-end}.message-avatar{width:30px;height:30px;border-radius:50%;object-fit:cover;background:var(--soft)}
+.bubble{max-width:min(72%,640px)!important;margin:0!important;white-space:pre-wrap;overflow-wrap:anywhere}.bubble-time{font-size:10px;opacity:.68;margin-top:5px;text-align:right}
+.typing-line{height:26px;padding:3px 18px;color:var(--muted);font-size:13px;background:var(--panel)}
+.typing-dots{display:inline-flex;gap:3px;margin-left:5px}.typing-dots i{width:5px;height:5px;border-radius:50%;background:currentColor;animation:typingPulse 1.2s infinite}.typing-dots i:nth-child(2){animation-delay:.15s}.typing-dots i:nth-child(3){animation-delay:.3s}
+@keyframes typingPulse{0%,70%,100%{opacity:.25;transform:translateY(0)}35%{opacity:1;transform:translateY(-2px)}}
+.chat-compose{align-items:flex-end!important;background:var(--panel);position:sticky;bottom:0}.chat-compose textarea{flex:1;min-height:44px;max-height:150px;resize:none}
+.online-dot{width:10px;height:10px;background:#22c55e;border-radius:50%;border:2px solid var(--panel);display:inline-block}
+@media(max-width:760px){
+  .thread-list{grid-template-columns:1fr!important;max-height:none;min-height:calc(100vh - 150px)}
+  .threads{max-height:42vh!important;border-right:0;border-bottom:1px solid var(--line)}
+  .chat{min-height:58vh}
+  .bubble{max-width:86%!important}
+}
+
+
+.profile-link{border:0;background:transparent;color:inherit;padding:0;margin:0;cursor:pointer;text-align:left;font:inherit}
+.profile-link:hover{text-decoration:underline;text-decoration-thickness:1.5px;text-underline-offset:3px}
+
 </style>
 </head>
 <body>
@@ -138,6 +239,79 @@ header{height:78px;background:var(--panel);border-bottom:1px solid var(--line);d
 </div>
 
 <div class="modal-wrap hidden" id="modalWrap"><div class="modal"><button class="modal-close" id="modalClose">×</button><h2 id="modalTitle"></h2><div id="modalBody"></div></div></div>
+
+<div class="settings-wrap hidden" id="settingsWrap">
+  <aside class="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+    <div class="settings-head">
+      <div><h2 id="settingsTitle" style="margin:0">Settings</h2><div class="muted">Manage your CreatorsIn experience.</div></div>
+      <button class="icon-btn" id="closeSettingsBtn" aria-label="Close settings">×</button>
+    </div>
+
+    <section class="settings-section">
+      <h3>Appearance</h3>
+      <div class="setting-row">
+        <div class="setting-copy"><strong>Theme</strong><span>Choose light mode, dark mode, or follow your device.</span></div>
+        <div class="segmented" id="themeSegmented">
+          <button data-theme-choice="light">Light</button>
+          <button data-theme-choice="dark">Dark</button>
+          <button data-theme-choice="system">System</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="settings-section">
+      <h3>Account</h3>
+      <div class="setting-row">
+        <div class="setting-copy"><strong>Profile visibility</strong><span>Control whether your profile appears in Discover.</span></div>
+        <button class="switch" id="discoverableSwitch" aria-label="Toggle profile visibility"></button>
+      </div>
+      <div class="setting-row">
+        <div class="setting-copy"><strong>Email</strong><span id="settingsEmail">Signed-in email</span></div>
+      </div>
+      <button class="secondary" id="openProfileSettingsBtn">Edit profile</button>
+    </section>
+
+    <section class="settings-section">
+      <h3>Privacy and safety</h3>
+      <div class="setting-row">
+        <div class="setting-copy"><strong>Allow direct messages</strong><span>Let registered members start conversations with you.</span></div>
+        <button class="switch on" id="dmSwitch" aria-label="Toggle direct messages"></button>
+      </div>
+      <div class="setting-row">
+        <div class="setting-copy"><strong>Show activity status</strong><span>Let others know when you are active.</span></div>
+        <button class="switch" id="activitySwitch" aria-label="Toggle activity status"></button>
+      </div>
+    </section>
+
+    <section class="settings-section">
+      <h3>Notifications</h3>
+      <div class="setting-row">
+        <div class="setting-copy"><strong>Connection requests</strong><span>Show alerts for new connection requests.</span></div>
+        <button class="switch on" id="connectionNotifSwitch" aria-label="Toggle connection notifications"></button>
+      </div>
+      <div class="setting-row">
+        <div class="setting-copy"><strong>Messages</strong><span>Show alerts for new messages.</span></div>
+        <button class="switch on" id="messageNotifSwitch" aria-label="Toggle message notifications"></button>
+      </div>
+    </section>
+
+    <section class="settings-section">
+      <h3>Support and legal</h3>
+      <div style="display:grid;gap:9px">
+        <button class="secondary" data-settings-legal="privacy">Privacy</button>
+        <button class="secondary" data-settings-legal="terms">Terms</button>
+        <button class="secondary" data-settings-legal="community">Community Guidelines</button>
+        <button class="secondary" data-settings-legal="verification">Verification</button>
+      </div>
+    </section>
+
+    <section class="settings-section">
+      <h3>Session</h3>
+      <button class="secondary settings-danger" id="settingsSignOutBtn">Sign out</button>
+    </section>
+  </aside>
+</div>
+
 <div class="toast" id="toast"></div>
 <footer class="legal-footer"><span>© 2026 CreatorsIn</span><button data-legal="terms">Terms</button><button data-legal="privacy">Privacy</button><button data-legal="community">Community Guidelines</button><button data-legal="verification">Verification</button></footer>
 <script src="app.js"></script>
