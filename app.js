@@ -358,8 +358,6 @@ function bindDiscover(){
     const {error}=await sb.from('follows').delete().eq('follower_id',user.id).eq('following_id',b.dataset.unfollow);
     if(error)showToast(error.message);else{showToast('Unfollowed');discover()}
   });
-    if(error)showToast(error.message);else{showToast('Connection request sent');discover()}
-  });
   $$('[data-view]').forEach(b=>b.onclick=()=>showMember(b.dataset.view));
   $$('[data-message-user]').forEach(b=>b.onclick=()=>startConversation(b.dataset.messageUser))
 }
@@ -429,8 +427,6 @@ async function renderPublicProfile(memberId){
   $('[data-profile-unfollow]')?.addEventListener('click',async()=>{
     const {error}=await sb.from('follows').delete().eq('follower_id',user.id).eq('following_id',memberId);
     if(error)return showToast(error.message);showToast('Unfollowed');await renderPublicProfile(memberId)
-  });
-    if(error)return showToast(error.message);showToast('Connection request sent');await renderPublicProfile(memberId)
   });
   $('[data-profile-message]')?.addEventListener('click',()=>startConversation(memberId));
   $('[data-page="profile"]')?.addEventListener('click',()=>setPage('profile'));
