@@ -4,7 +4,7 @@ const cfg=window.CREATORSIN_CONFIG||{};
 const sb=window.supabase.createClient(cfg.SUPABASE_URL,cfg.SUPABASE_ANON_KEY);
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const main=$('#main'), gate=$('#authGate'), toast=$('#toast');
-let authMode='signup', user=null, profile=null, members=[], connections=[], requests=[], follows=[], conversations=[], activeConversation=null, messageChannel=null, typingChannel=null, inboxChannel=null, typingTimer=null, currentChatOther=null;
+let authMode='signup', user=null, profile=null, members=[], connections=[], requests=[], follows=[], conversations=[], activeConversation=null, messageChannel=null, typingChannel=null, inboxChannel=null, typingTimer=null, currentChatOther=null, activeProfileId=null, activeProfileTab='posts';
 const EMPTY='data:image/svg+xml;charset=utf8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120"><rect width="120" height="120" rx="60" fill="#dceeff"/><circle cx="60" cy="45" r="22" fill="#58aaff"/><path d="M22 110c8-29 23-42 38-42s30 13 38 42" fill="#58aaff"/></svg>');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function showToast(t){toast.textContent=t;toast.classList.add('show');setTimeout(()=>toast.classList.remove('show'),2200)}
@@ -362,8 +362,130 @@ function bindDiscover(){
   $$('[data-view]').forEach(b=>b.onclick=()=>showMember(b.dataset.view));
   $$('[data-message-user]').forEach(b=>b.onclick=()=>startConversation(b.dataset.messageUser))
 }
-function showMember(id){const m=members.find(x=>x.id===id);if(!m)return;modal(m.full_name,`<div class="row"><img class="avatar" style="width:82px;height:82px" src="${esc(m.avatar_url||EMPTY)}"><div><strong>${esc(m.headline||m.account_type)}</strong><p class="muted">${esc(m.bio||'No bio yet.')}</p></div></div>`)}
-
+async function showMember(id){
+  return openMemberProfile(id);
+}
+async function fetchProfileCounts(memberId){
+  const [{count:followers},{count:following},{count:postsCount},{count:connectionsCount}]=await Promise.all([
+    sb.from('follows').select('*',{count:'exact',head:true}).eq('following_id',memberId),
+    sb.from('follows').select('*',{count:'exact',head:true}).eq('follower_id',memberId),
+    sb.from('posts').select('*',{count:'exact',head:true}).eq('user_id',memberId),
+    sb.from('connections').select('*',{count:'exact',head:true}).eq('status','accepted').or(`requester_id.eq.${memberId},addressee_id.eq.${memberId}`)
+  ]);
+  return {followers:followers||0,following:following||0,posts:postsCount||0,connections:connectionsCount||0}
+}
+async function renderPublicProfile(memberId){
+  await loadSocial();
+  const {data:member,error}=await sb.from('profiles').select('*').eq('id',memberId).single();
+  if(error){main.innerHTML=`<section class="card empty"><h2>Profile not found</h2><p class="muted">${esc(error.message)}</p></section>`;return}
+  const counts=await fetchProfileCounts(memberId);
+  const isSelf=memberId===user.id;
+  const rel=relationship(memberId);
+  const isFollowing=follows.some(f=>f.following_id===memberId);
+  const connectionButton=isSelf?'':rel?.status==='accepted'
+    ?`<button class="secondary" disabled>Connected</button>`
+    :rel?.status==='pending'
+      ?`<button class="secondary" disabled>${rel.requester_id===user.id?'Request sent':'Request received'}</button>`
+      :`<button class="secondary" data-profile-connect="${memberId}">Connect</button>`;
+  const followButton=isSelf?'':isFollowing
+    ?`<button class="secondary" data-profile-unfollow="${memberId}">Following</button>`
+    :`<button class="primary" data-profile-follow="${memberId}">Follow</button>`;
+  const messageButton=isSelf?'':`<button class="secondary" data-profile-message="${memberId}">Message</button>`;
+  const shareUrl=`${location.origin}/${encodeURIComponent(member.username||member.id)}`;
+  main.innerHTML=`<div class="public-profile">
+    <button class="secondary profile-back" id="profileBackBtn">← Back</button>
+    <section class="card public-profile-card">
+      <div class="public-cover" style="${member.banner_url?`background-image:url('${esc(member.banner_url)}')`:''}"></div>
+      <div class="public-profile-main">
+        <div class="public-profile-top">
+          <img class="public-profile-avatar" src="${esc(member.avatar_url||EMPTY)}" alt="${esc(member.full_name)}">
+          <div class="public-profile-copy">
+            <h1>${esc(member.full_name)} ${member.is_verified?'<span class="verified">✓</span>':''}${member.is_founder?'<span class="badge">Founder</span>':''}</h1>
+            <div class="muted">@${esc(member.username||'member')} · ${esc(member.headline||member.account_type||'member')}</div>
+            ${member.location?`<div class="muted">${esc(member.location)}</div>`:''}
+          </div>
+          <div class="public-profile-actions">${followButton}${connectionButton}${messageButton}${isSelf?'<button class="primary" data-page="profile">Edit profile</button>':''}</div>
+        </div>
+        <div class="profile-counts">
+          <button><strong>${counts.followers}</strong><span>Followers</span></button>
+          <button><strong>${counts.following}</strong><span>Following</span></button>
+          <button><strong>${counts.connections}</strong><span>Connections</span></button>
+          <button><strong>${counts.posts}</strong><span>Posts</span></button>
+        </div>
+        <div class="share-profile-row">
+          <button class="secondary" id="copyProfileLinkBtn">Copy profile link</button>
+          <span class="muted">${esc(shareUrl)}</span>
+        </div>
+      </div>
+    </section>
+    <div class="profile-tabs">
+      <button class="active" data-public-profile-tab="posts">Posts</button>
+      <button data-public-profile-tab="media">Media</button>
+      <button data-public-profile-tab="about">About</button>
+      ${['brand','agency'].includes(member.account_type)?'<button data-public-profile-tab="opportunities">Opportunities</button>':''}
+    </div>
+    <div id="publicProfileContent"></div>
+  </div>`;
+  $('#profileBackBtn').onclick=()=>{history.back()};
+  $('#copyProfileLinkBtn').onclick=async()=>{await navigator.clipboard.writeText(shareUrl);showToast('Profile link copied')};
+  $('[data-profile-follow]')?.addEventListener('click',async()=>{
+    const {error}=await sb.from('follows').insert({follower_id:user.id,following_id:memberId});
+    if(error)return showToast(error.message);showToast('Following member');await renderPublicProfile(memberId)
+  });
+  $('[data-profile-unfollow]')?.addEventListener('click',async()=>{
+    const {error}=await sb.from('follows').delete().eq('follower_id',user.id).eq('following_id',memberId);
+    if(error)return showToast(error.message);showToast('Unfollowed');await renderPublicProfile(memberId)
+  });
+  $('[data-profile-connect]')?.addEventListener('click',async()=>{
+    const {error}=await sb.from('connections').insert({requester_id:user.id,addressee_id:memberId,status:'pending'});
+    if(error)return showToast(error.message);showToast('Connection request sent');await renderPublicProfile(memberId)
+  });
+  $('[data-profile-message]')?.addEventListener('click',()=>startConversation(memberId));
+  $('[data-page="profile"]')?.addEventListener('click',()=>setPage('profile'));
+  $$('[data-public-profile-tab]').forEach(b=>b.onclick=()=>{
+    $$('[data-public-profile-tab]').forEach(x=>x.classList.toggle('active',x===b));
+    activeProfileTab=b.dataset.publicProfileTab;
+    renderPublicProfileTab(member,activeProfileTab)
+  });
+  renderPublicProfileTab(member,'posts')
+}
+async function renderPublicProfileTab(member,tab){
+  const box=$('#publicProfileContent');
+  if(!box)return;
+  box.innerHTML='<section class="card empty"><p class="muted">Loading…</p></section>';
+  if(tab==='posts'){
+    const {data,error}=await sb.from('posts').select('id,user_id,content,media_url,media_type,link_url,created_at,profiles:posts_user_id_fkey(full_name,username,headline,account_type,avatar_url,is_verified,is_founder)').eq('user_id',member.id).order('created_at',{ascending:false});
+    if(error)return box.innerHTML=`<section class="card empty"><p class="muted">${esc(error.message)}</p></section>`;
+    box.innerHTML=(data||[]).length?`<div class="feed">${data.map(p=>renderSocialPost(p,[],[])).join('')}</div>`:`<section class="card empty"><h2>No posts yet</h2><p class="muted">${esc(member.full_name)} has not posted yet.</p></section>`;
+    bindFeedActions();bindProfileLinks()
+  }else if(tab==='media'){
+    const {data,error}=await sb.from('posts').select('id,media_url,media_type').eq('user_id',member.id).not('media_url','is',null).order('created_at',{ascending:false});
+    if(error)return box.innerHTML=`<section class="card empty"><p class="muted">${esc(error.message)}</p></section>`;
+    box.innerHTML=(data||[]).length?`<section class="card profile-about"><div class="profile-media-grid">${data.map(p=>p.media_type==='video'?`<video controls preload="metadata" src="${esc(p.media_url)}"></video>`:`<img loading="lazy" src="${esc(p.media_url)}" alt="Profile media">`).join('')}</div></section>`:`<section class="card empty"><h2>No media yet</h2></section>`
+  }else if(tab==='about'){
+    box.innerHTML=`<section class="card profile-about">
+      <h2>About</h2><p>${esc(member.bio||'No bio added yet.')}</p>
+      <div class="profile-about-grid">
+        <div class="profile-about-item"><strong>Account type</strong><span>${esc(member.account_type||'member')}</span></div>
+        <div class="profile-about-item"><strong>Niche or industry</strong><span>${esc(member.niche||'Not listed')}</span></div>
+        <div class="profile-about-item"><strong>Location</strong><span>${esc(member.location||'Not listed')}</span></div>
+        <div class="profile-about-item"><strong>Member since</strong><span>${new Date(member.created_at).toLocaleDateString()}</span></div>
+      </div>
+      <div class="profile-socials">
+        ${member.website_url?`<a class="secondary" href="${esc(member.website_url)}" target="_blank" rel="noopener">Website</a>`:''}
+        ${member.instagram_url?`<a class="secondary" href="${esc(member.instagram_url)}" target="_blank" rel="noopener">Instagram</a>`:''}
+        ${member.tiktok_url?`<a class="secondary" href="${esc(member.tiktok_url)}" target="_blank" rel="noopener">TikTok</a>`:''}
+        ${member.youtube_url?`<a class="secondary" href="${esc(member.youtube_url)}" target="_blank" rel="noopener">YouTube</a>`:''}
+        ${member.twitch_url?`<a class="secondary" href="${esc(member.twitch_url)}" target="_blank" rel="noopener">Twitch</a>`:''}
+      </div>
+    </section>`
+  }else if(tab==='opportunities'){
+    const {data,error}=await sb.from('opportunities').select('*').eq('business_id',member.id).eq('status','open').order('created_at',{ascending:false});
+    if(error)return box.innerHTML=`<section class="card empty"><p class="muted">${esc(error.message)}</p></section>`;
+    box.innerHTML=(data||[]).length?`<div class="feed">${data.map(o=>`<article class="card opportunity"><h3>${esc(o.title)}</h3><p>${esc(o.description)}</p><div class="opportunity-meta">${o.compensation?`<span class="chip">${esc(o.compensation)}</span>`:''}${o.opportunity_type?`<span class="chip">${esc(o.opportunity_type)}</span>`:''}${o.platforms?`<span class="chip">${esc(o.platforms)}</span>`:''}</div><button class="primary" data-page="opportunities">View opportunity</button></article>`).join('')}</div>`:`<section class="card empty"><h2>No open opportunities</h2></section>`;
+    $$('[data-page="opportunities"]').forEach(b=>b.onclick=()=>setPage('opportunities'))
+  }
+}
 async function connectionsPage(){
   await loadSocial();
   const accepted=connections.filter(c=>c.status==='accepted').map(c=>members.find(m=>m.id===(c.requester_id===user.id?c.addressee_id:c.requester_id))).filter(Boolean);
@@ -890,13 +1012,15 @@ function initializeSettings(){
   });
 }
 
-function openMemberProfile(memberId){
+async function openMemberProfile(memberId,{push=true}={}){
   if(!memberId)return;
-  if(memberId===user.id){
-    setPage('profile');
-    return;
+  activeProfileId=memberId;
+  activeProfileTab='posts';
+  await renderPublicProfile(memberId);
+  if(push){
+    const target=memberId===user.id?profile:(members.find(m=>m.id===memberId)||null);
+    if(target?.username)history.pushState({profileId:memberId},'',`/${encodeURIComponent(target.username)}`);
   }
-  showMember(memberId);
 }
 function bindProfileLinks(){
   $$('[data-profile-id]').forEach(el=>{
@@ -907,7 +1031,20 @@ function bindProfileLinks(){
   });
 }
 
-async function init(){const {data}=await sb.auth.getSession();if(!data.session){gate.classList.remove('hidden');return}user=data.session.user;gate.classList.add('hidden');await ensureProfile();syncIdentity();await loadSocial();initializeSettings();if(needsOnboarding(profile))launchOnboarding();else setPage('feed');sb.channel('messages-live').on('postgres_changes',{event:'INSERT',schema:'public',table:'messages'},payload=>{if(activeConversation&&payload.new.conversation_id===activeConversation)openConversation(activeConversation)}).subscribe()}
+async function routeFromLocation(){
+  const slug=decodeURIComponent(location.pathname.replace(/^\/+|\/+$/g,''));
+  if(!slug)return false;
+  const {data,error}=await sb.from('profiles').select('id').eq('username',slug).maybeSingle();
+  if(error||!data)return false;
+  await openMemberProfile(data.id,{push:false});
+  return true
+}
+window.addEventListener('popstate',async event=>{
+  if(event.state?.profileId)await openMemberProfile(event.state.profileId,{push:false});
+  else if(!(await routeFromLocation()))setPage('feed')
+});
+
+async function init(){const {data}=await sb.auth.getSession();if(!data.session){gate.classList.remove('hidden');return}user=data.session.user;gate.classList.add('hidden');await ensureProfile();syncIdentity();await loadSocial();initializeSettings();if(needsOnboarding(profile))launchOnboarding();else if(!(await routeFromLocation()))setPage('feed');sb.channel('messages-live').on('postgres_changes',{event:'INSERT',schema:'public',table:'messages'},payload=>{if(activeConversation&&payload.new.conversation_id===activeConversation)openConversation(activeConversation)}).subscribe()}
 sb.auth.onAuthStateChange((_e,s)=>{if(s?.user&&!user){user=s.user;init()}else if(!s?.user&&user)location.reload()});
 init();
 })();
