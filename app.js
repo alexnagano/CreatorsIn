@@ -11,8 +11,21 @@ function showToast(t){toast.textContent=t;toast.classList.add('show');setTimeout
 function modal(title,html){$('#modalTitle').textContent=title;$('#modalBody').innerHTML=html;$('#modalWrap').classList.remove('hidden')}
 function closeModal(){$('#modalWrap').classList.add('hidden')}
 $('#modalClose').onclick=closeModal;$('#modalWrap').onclick=e=>{if(e.target.id==='modalWrap')closeModal()};
-function setTheme(next){document.documentElement.dataset.theme=next;localStorage.setItem('cin_theme',next);$('#themeBtn').textContent=next==='dark'?'☀':'☾'}
-setTheme(localStorage.getItem('cin_theme')||'light');$('#themeBtn').onclick=()=>setTheme(document.documentElement.dataset.theme==='dark'?'light':'dark');
+function setTheme(next){
+  const theme=next==='dark'?'dark':'light';
+  document.documentElement.dataset.theme=theme;
+  document.body.classList.toggle('dark',theme==='dark');
+  localStorage.setItem('creatorsin-theme-choice',theme);
+  localStorage.setItem('cin_theme',theme);
+  if($('#themeBtn'))$('#themeBtn').textContent=theme==='dark'?'☀':'☾';
+}
+if(localStorage.getItem('creatorsin-light-default-v2')!=='done'){
+  localStorage.setItem('creatorsin-theme-choice','light');
+  localStorage.setItem('cin_theme','light');
+  localStorage.setItem('creatorsin-light-default-v2','done');
+}
+setTheme(localStorage.getItem('creatorsin-theme-choice')||localStorage.getItem('cin_theme')||'light');
+$('#themeBtn').onclick=()=>setTheme(document.documentElement.dataset.theme==='dark'?'light':'dark');
 
 function setAuthMode(mode){authMode=mode;$$('[data-auth]').forEach(b=>b.classList.toggle('active',b.dataset.auth===mode));$('#authTitle').textContent=mode==='signup'?'Create your account':'Welcome back';$('#emailBtn').textContent=mode==='signup'?'Create account':'Log in';$('#nameInput').classList.toggle('hidden',mode==='login');$('#typeInput').classList.toggle('hidden',mode==='login');$('#authMsg').textContent=''}
 $$('[data-auth]').forEach(b=>b.onclick=()=>setAuthMode(b.dataset.auth));
@@ -813,6 +826,8 @@ function applyThemeChoice(choice){
     :choice;
   document.documentElement.dataset.theme=resolved;
   document.body.classList.toggle('dark',resolved==='dark');
+  localStorage.setItem('cin_theme',resolved);
+  if($('#themeBtn'))$('#themeBtn').textContent=resolved==='dark'?'☀':'☾';
   $$('[data-theme-choice]').forEach(b=>b.classList.toggle('active',b.dataset.themeChoice===choice));
 }
 function openSettings(){
