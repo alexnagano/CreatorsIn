@@ -820,7 +820,7 @@ function openSettings(){
   $('#settingsEmail').textContent=user?.email||profile?.email||'';
   const discoverable=profile?.is_discoverable!==false;
   $('#discoverableSwitch').classList.toggle('on',discoverable);
-  const choice=localStorage.getItem('creatorsin-theme-choice')||'system';
+  const choice=localStorage.getItem('creatorsin-theme-choice')||'light';
   applyThemeChoice(choice);
 }
 function closeSettings(){
@@ -834,7 +834,7 @@ function toggleLocalSetting(button,key,defaultValue=false){
   button.classList.toggle('on',next);
 }
 function initializeSettings(){
-  const choice=localStorage.getItem('creatorsin-theme-choice')||'system';
+  const choice=localStorage.getItem('creatorsin-theme-choice')||'light';
   applyThemeChoice(choice);
 
   $('#settingsBtn')?.addEventListener('click',openSettings);
@@ -871,7 +871,7 @@ function initializeSettings(){
   $('#settingsSignOutBtn')?.addEventListener('click',async()=>{await sb.auth.signOut();location.reload()});
 
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change',()=>{
-    if((localStorage.getItem('creatorsin-theme-choice')||'system')==='system')applyThemeChoice('system')
+    if((localStorage.getItem('creatorsin-theme-choice')||'light')==='system')applyThemeChoice('system')
   });
 }
 
