@@ -250,6 +250,37 @@ html[data-theme="dark"] .public-cover{background:linear-gradient(135deg,#173957,
   .suggested-grid{grid-template-columns:1fr}
 }
 
+
+/* Discover traction dashboard */
+.discover-traction{display:grid;gap:20px}
+.discover-hero{padding:22px;background:linear-gradient(135deg,var(--panel),var(--soft))}
+.discover-hero-top{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.discover-tabs{display:flex;gap:7px;flex-wrap:wrap;margin-top:16px}
+.discover-tab{border:1px solid var(--line);background:var(--panel);color:var(--muted);padding:9px 14px;border-radius:999px;cursor:pointer;font-weight:800}
+.discover-tab.active{background:var(--blue);border-color:var(--blue);color:#fff}
+.trending-creators{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.traction-card{padding:18px;position:relative;overflow:hidden}
+.traction-rank{position:absolute;right:14px;top:12px;font-size:28px;font-weight:900;color:var(--line)}
+.traction-head{display:flex;align-items:center;gap:12px;padding-right:34px}
+.traction-avatar{width:62px;height:62px;border-radius:50%;object-fit:cover;background:var(--soft)}
+.traction-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-top:15px}
+.traction-metric{padding:9px 6px;border-radius:10px;background:var(--soft);text-align:center}
+.traction-metric strong{display:block;font-size:16px}.traction-metric span{font-size:11px;color:var(--muted)}
+.traction-score{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px}
+.traction-bar{height:7px;background:var(--line);border-radius:999px;overflow:hidden;flex:1}
+.traction-bar i{display:block;height:100%;background:var(--blue);border-radius:999px}
+.discover-section-head{display:flex;justify-content:space-between;align-items:end;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+.discover-section-head h2{margin:0}.discover-section-head p{margin:4px 0 0}
+.trending-feed{display:grid;gap:14px}
+.engagement-label{display:inline-flex;align-items:center;gap:5px;background:var(--soft);color:var(--blue2);font-weight:800;font-size:12px;padding:5px 8px;border-radius:999px}
+.repost-context{display:flex;align-items:center;gap:7px;padding:10px 18px 0;color:var(--muted);font-size:13px;font-weight:700}
+.post-action.reposted{color:var(--blue2);background:var(--soft)}
+.deal-badge{display:inline-flex;align-items:center;gap:5px;background:#e8fff1;color:#087a3c;border-radius:999px;padding:5px 8px;font-size:12px;font-weight:800}
+html[data-theme="dark"] .deal-badge{background:#123524;color:#7ce6a8}
+.discover-search-results{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+@media(max-width:980px){.trending-creators,.discover-search-results{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:650px){.trending-creators,.discover-search-results{grid-template-columns:1fr}.traction-metrics{grid-template-columns:repeat(2,1fr)}}
+
 </style>
 </head>
 <body>

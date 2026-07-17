@@ -208,37 +208,78 @@ async function renderTimeline(filter){
     const items=await loadTimeline(filter);
     if(!items.length){list.innerHTML=`<section class="card empty"><h2>No posts yet</h2><p class="muted">Follow real members or publish the first post.</p></section>`;return}
     const postIds=items.filter(x=>x.kind==='post').map(x=>x.id);
-    let likes=[],comments=[];
+    let likes=[],comments=[],reposts=[];
     if(postIds.length){
-      const [{data:l},{data:c}]=await Promise.all([
+      const [{data:l},{data:c},{data:r}]=await Promise.all([
         sb.from('post_likes').select('post_id,user_id').in('post_id',postIds),
-        sb.from('post_comments').select('id,post_id,user_id,content,created_at,profiles:post_comments_user_id_fkey(full_name,avatar_url,username)').in('post_id',postIds).order('created_at')
-      ]);likes=l||[];comments=c||[];
+        sb.from('post_comments').select('id,post_id,user_id,content,created_at,profiles:post_comments_user_id_fkey(full_name,avatar_url,username)').in('post_id',postIds).order('created_at'),
+        sb.from('post_reposts').select('post_id,user_id,created_at').in('post_id',postIds)
+      ]);likes=l||[];comments=c||[];reposts=r||[];
     }
-    list.innerHTML=items.map(item=>item.kind==='job'?renderJobFeedItem(item):renderSocialPost(item,likes,comments)).join('');
+    list.innerHTML=items.map(item=>item.kind==='job'?renderJobFeedItem(item):renderSocialPost(item,likes,comments,reposts)).join('');
     bindFeedActions();bindProfileLinks();
   }catch(e){list.innerHTML=`<section class="card empty"><h2>Could not load the feed</h2><p class="muted">${esc(e.message)}</p></section>`}
 }
-function renderSocialPost(p,likes,comments){
-  const postLikes=likes.filter(x=>x.post_id===p.id),postComments=comments.filter(x=>x.post_id===p.id),liked=postLikes.some(x=>x.user_id===user.id);
+function renderSocialPost(p,likes=[],comments=[],reposts=[],options={}){
+  const postLikes=likes.filter(x=>x.post_id===p.id);
+  const postComments=comments.filter(x=>x.post_id===p.id);
+  const postReposts=reposts.filter(x=>x.post_id===p.id);
+  const liked=postLikes.some(x=>x.user_id===user.id);
+  const reposted=postReposts.some(x=>x.user_id===user.id);
+  const engagement=postLikes.length+postComments.length+(postReposts.length*2);
   return `<article class="card social-post">
+    ${options.trending?`<div class="repost-context"><span class="engagement-label">🔥 ${engagement} engagement points</span>${options.rank?`<span>Trending #${options.rank}</span>`:''}</div>`:''}
     <div class="social-post-header"><img class="avatar" src="${esc(p.profiles?.avatar_url||EMPTY)}"><div style="flex:1"><button class="profile-link" data-profile-id="${p.user_id}"><strong>${esc(p.profiles?.full_name||'Member')} ${p.profiles?.is_verified?'<span class="verified">✓</span>':''}${p.profiles?.is_founder?'<span class="badge">Founder</span>':''}</strong></button><div class="muted">@${esc(p.profiles?.username||'member')} · ${new Date(p.created_at).toLocaleString()}</div></div>${p.user_id===user.id?`<button class="secondary danger" data-delete-post="${p.id}">Delete</button>`:''}</div>
     <div class="social-post-body">${p.content?`<p>${renderPostText(p.content)}</p>`:''}${p.link_url?`<a class="post-link" href="${esc(p.link_url)}" target="_blank" rel="noopener"><strong>Open link ↗</strong><br>${esc(p.link_url)}</a>`:''}</div>
     ${p.media_url?(p.media_type==='video'?`<video class="post-media" controls preload="metadata" src="${esc(p.media_url)}"></video>`:`<img class="post-media" loading="lazy" src="${esc(p.media_url)}" alt="Post media">`):''}
-    <div class="post-actions"><button class="post-action ${liked?'active':''}" data-like="${p.id}">♡ ${postLikes.length}</button><button class="post-action" data-toggle-comments="${p.id}">↩ ${postComments.length}</button><button class="post-action" data-copy-post="${p.id}">↗ Share</button><button class="post-action" data-message-author="${p.user_id}">✉ Message</button></div>
+    <div class="post-actions">
+      <button class="post-action ${liked?'active':''}" data-like="${p.id}">♡ ${postLikes.length}</button>
+      <button class="post-action" data-toggle-comments="${p.id}">↩ ${postComments.length}</button>
+      <button class="post-action ${reposted?'reposted':''}" data-repost="${p.id}">⟳ ${postReposts.length}</button>
+      <button class="post-action" data-copy-post="${p.id}">↗ Share</button>
+    </div>
     <div class="comments hidden" id="comments-${p.id}"><div>${postComments.map(c=>`<div class="comment-row"><img class="avatar" src="${esc(c.profiles?.avatar_url||EMPTY)}"><div class="comment-body"><button class="profile-link" data-profile-id="${c.user_id}"><strong>${esc(c.profiles?.full_name||'Member')}</strong></button><div>${renderPostText(c.content)}</div></div></div>`).join('')}</div><div class="comment-form"><input class="field" id="comment-input-${p.id}" placeholder="Write a reply"><button class="primary" data-comment="${p.id}">Reply</button></div></div>
   </article>`
 }
 function renderJobFeedItem(o){
   return `<article class="card social-post"><div class="social-post-header"><img class="avatar" src="${esc(o.profiles?.avatar_url||EMPTY)}"><div style="flex:1"><button class="profile-link" data-profile-id="${o.business_id}"><strong>${esc(o.profiles?.full_name||'Business')} ${o.profiles?.is_verified?'<span class="verified">✓</span>':''}</strong></button><div class="muted">posted an opportunity · ${new Date(o.created_at).toLocaleString()}</div></div><span class="post-type">Opportunity</span></div><div class="social-post-body"><div class="job-card"><h3>${esc(o.title)}</h3><p>${esc(o.description)}</p><div class="job-meta">${o.compensation?`<span class="chip">${esc(o.compensation)}</span>`:''}${o.opportunity_type?`<span class="chip">${esc(o.opportunity_type)}</span>`:''}${o.platforms?`<span class="chip">${esc(o.platforms)}</span>`:''}${o.location?`<span class="chip">${esc(o.location)}</span>`:''}</div>${o.deadline?`<div class="muted">Apply by ${new Date(o.deadline).toLocaleDateString()}</div>`:''}<button class="primary" data-open-opportunity="${o.id}" style="margin-top:12px">View opportunity</button></div></div></article>`
 }
+function refreshPostSurface(){
+  if(document.querySelector('.discover-traction'))discover();
+  else if(activeProfileId&&document.querySelector('.public-profile'))renderPublicProfileTab(members.find(m=>m.id===activeProfileId)||profile,activeProfileTab);
+  else renderTimeline(document.querySelector('[data-feed-filter].active')?.dataset.feedFilter||'for-you')
+}
 function bindFeedActions(){
-  $$('[data-like]').forEach(b=>b.onclick=async()=>{const post_id=b.dataset.like;const {data}=await sb.from('post_likes').select('post_id').eq('post_id',post_id).eq('user_id',user.id).maybeSingle();if(data)await sb.from('post_likes').delete().eq('post_id',post_id).eq('user_id',user.id);else await sb.from('post_likes').insert({post_id,user_id:user.id});renderTimeline(document.querySelector('[data-feed-filter].active')?.dataset.feedFilter||'for-you')});
+  $$('[data-like]').forEach(b=>b.onclick=async()=>{
+    const post_id=b.dataset.like;
+    const {data}=await sb.from('post_likes').select('post_id').eq('post_id',post_id).eq('user_id',user.id).maybeSingle();
+    const {error}=data
+      ?await sb.from('post_likes').delete().eq('post_id',post_id).eq('user_id',user.id)
+      :await sb.from('post_likes').insert({post_id,user_id:user.id});
+    if(error)return showToast(error.message);
+    refreshPostSurface()
+  });
   $$('[data-toggle-comments]').forEach(b=>b.onclick=()=>$('#comments-'+b.dataset.toggleComments).classList.toggle('hidden'));
-  $$('[data-comment]').forEach(b=>b.onclick=async()=>{const post_id=b.dataset.comment,input=$('#comment-input-'+post_id),content=input.value.trim();if(!content)return;const {error}=await sb.from('post_comments').insert({post_id,user_id:user.id,content});if(error)return showToast(error.message);renderTimeline(document.querySelector('[data-feed-filter].active')?.dataset.feedFilter||'for-you')});
+  $$('[data-comment]').forEach(b=>b.onclick=async()=>{
+    const post_id=b.dataset.comment,input=$('#comment-input-'+post_id),content=input.value.trim();
+    if(!content)return;
+    const {error}=await sb.from('post_comments').insert({post_id,user_id:user.id,content});
+    if(error)return showToast(error.message);
+    refreshPostSurface()
+  });
+  $$('[data-repost]').forEach(b=>b.onclick=async()=>{
+    const post_id=b.dataset.repost;
+    const {data}=await sb.from('post_reposts').select('post_id').eq('post_id',post_id).eq('user_id',user.id).maybeSingle();
+    const {error}=data
+      ?await sb.from('post_reposts').delete().eq('post_id',post_id).eq('user_id',user.id)
+      :await sb.from('post_reposts').insert({post_id,user_id:user.id});
+    if(error)return showToast(error.message);
+    showToast(data?'Repost removed':'Reposted');
+    refreshPostSurface()
+  });
   $$('[data-copy-post]').forEach(b=>b.onclick=async()=>{await navigator.clipboard.writeText(`${location.origin}/?post=${b.dataset.copyPost}`);showToast('Post link copied')});
   $$('[data-message-author]').forEach(b=>b.onclick=()=>startConversation(b.dataset.messageAuthor));
-  $$('[data-delete-post]').forEach(b=>b.onclick=async()=>{await sb.from('posts').delete().eq('id',b.dataset.deletePost).eq('user_id',user.id);showToast('Post deleted');renderTimeline(document.querySelector('[data-feed-filter].active')?.dataset.feedFilter||'for-you')});
+  $$('[data-delete-post]').forEach(b=>b.onclick=async()=>{const {error}=await sb.from('posts').delete().eq('id',b.dataset.deletePost).eq('user_id',user.id);if(error)return showToast(error.message);showToast('Post deleted');refreshPostSurface()});
   $$('[data-open-opportunity]').forEach(b=>b.onclick=()=>setPage('opportunities'));
 }
 
@@ -287,64 +328,121 @@ function memberRecommendationReason(member){
 }
 async function discover(){
   await loadSocial();
-  main.innerHTML=`<div class="page-title"><div><h1>Discover</h1><p class="muted">Personalized recommendations based on your profile, niche, location, and account type.</p></div><input class="field" id="memberSearch" placeholder="Search all members" style="max-width:300px"></div>
-    <section id="recommendedSection">
-      <div class="page-title" style="margin-top:0"><div><h2>Recommended for you</h2><p class="muted">A smaller, more relevant group of members to explore.</p></div></div>
-      <div class="grid" id="recommendedGrid"></div>
+  main.innerHTML=`<div class="discover-traction">
+    <section class="card discover-hero">
+      <div class="discover-hero-top">
+        <div><h1 style="margin:0 0 6px">Discover</h1><p class="muted" style="margin:0">See which creators and posts are gaining real traction across CreatorsIn.</p></div>
+        <input class="field" id="tractionSearch" placeholder="Search creators or content" style="max-width:320px">
+      </div>
+      <div class="discover-tabs">
+        <button class="discover-tab active" data-discover-view="trending">Trending</button>
+        <button class="discover-tab" data-discover-view="creators">Rising creators</button>
+        <button class="discover-tab" data-discover-view="content">Top content</button>
+        <button class="discover-tab" data-discover-view="deals">Deal momentum</button>
+      </div>
     </section>
-    <section class="hidden" id="searchResultsSection">
-      <div class="page-title"><div><h2>Search results</h2><p class="muted">Members matching your search.</p></div><button class="secondary" id="clearMemberSearch">Clear search</button></div>
-      <div class="grid" id="memberGrid"></div>
-    </section>`;
+    <div id="discoverTractionContent"></div>
+  </div>`;
 
-  const renderCards=(list,target)=>{
-    $(target).innerHTML=list.length?list.map(m=>{
-      const rel=relationship(m.id);
-      const isFollowing=follows.some(f=>f.following_id===m.id);
-      const connectionAction=rel?.status==='accepted'
-        ?`<button class="primary" data-message-user="${m.id}">Message</button>`
-        :rel?.status==='pending'
-          ?`<button class="secondary" disabled>${rel.requester_id===user.id?'Request sent':'Respond in Network'}</button>`
-          :`<button class="secondary" data-connect="${m.id}">Connect</button>`;
-      const followAction=isFollowing
-        ?`<button class="secondary" data-unfollow="${m.id}">Following</button>`
-        :`<button class="primary" data-follow="${m.id}">Follow</button>`;
-      return `<article class="card member">
-        <div class="member-top">
-          <img class="avatar" src="${esc(m.avatar_url||EMPTY)}">
-          <div>
-            <button class="profile-link" data-profile-id="${m.id}"><h3 style="margin:0">${esc(m.full_name)} ${m.is_verified?'<span class="verified">✓</span>':''}${m.is_founder?'<span class="badge">Founder</span>':''}</h3></button>
-            <div class="muted">@${esc(m.username||'member')} · ${esc(m.headline||m.account_type||'member')}</div>
+  let activeView='trending';
+  let searchQuery='';
+
+  const loadData=async()=>{
+    const [{data:posts,error:postError},{data:likes},{data:comments},{data:reposts},{data:deals}]=await Promise.all([
+      sb.from('posts').select('id,user_id,content,media_url,media_type,link_url,created_at,profiles:posts_user_id_fkey(full_name,username,headline,account_type,avatar_url,is_verified,is_founder,niche,location)').order('created_at',{ascending:false}).limit(100),
+      sb.from('post_likes').select('post_id,user_id'),
+      sb.from('post_comments').select('id,post_id,user_id,content,created_at,profiles:post_comments_user_id_fkey(full_name,avatar_url,username)').order('created_at'),
+      sb.from('post_reposts').select('post_id,user_id,created_at'),
+      sb.from('creator_deal_highlights').select('creator_id,created_at')
+    ]);
+    if(postError)throw postError;
+    return {posts:posts||[],likes:likes||[],comments:comments||[],reposts:reposts||[],deals:deals||[]}
+  };
+
+  const render=async()=>{
+    const box=$('#discoverTractionContent');
+    box.innerHTML='<section class="card empty"><p class="muted">Calculating real traction…</p></section>';
+    try{
+      const data=await loadData();
+      const filteredPosts=data.posts.filter(p=>{
+        const text=`${p.content||''} ${p.profiles?.full_name||''} ${p.profiles?.username||''} ${p.profiles?.niche||''}`.toLowerCase();
+        return text.includes(searchQuery)
+      });
+
+      const postStats=filteredPosts.map(p=>{
+        const likeCount=data.likes.filter(x=>x.post_id===p.id).length;
+        const commentCount=data.comments.filter(x=>x.post_id===p.id).length;
+        const repostCount=data.reposts.filter(x=>x.post_id===p.id).length;
+        const ageHours=Math.max(1,(Date.now()-new Date(p.created_at).getTime())/3600000);
+        const freshness=Math.max(0,20-(ageHours/12));
+        return {...p,likeCount,commentCount,repostCount,score:(likeCount*2)+(commentCount*3)+(repostCount*4)+freshness}
+      }).sort((a,b)=>b.score-a.score);
+
+      const creatorMap=new Map();
+      data.posts.forEach(p=>{
+        if(!p.profiles)return;
+        if(searchQuery&&!`${p.profiles.full_name||''} ${p.profiles.username||''} ${p.profiles.niche||''}`.toLowerCase().includes(searchQuery)&&!filteredPosts.some(x=>x.user_id===p.user_id))return;
+        const existing=creatorMap.get(p.user_id)||{id:p.user_id,profile:p.profiles,likes:0,comments:0,reposts:0,posts:0,deals:0,score:0};
+        const creatorPosts=data.posts.filter(x=>x.user_id===p.user_id);
+        existing.posts=creatorPosts.length;
+        existing.likes=data.likes.filter(l=>creatorPosts.some(cp=>cp.id===l.post_id)).length;
+        existing.comments=data.comments.filter(c=>creatorPosts.some(cp=>cp.id===c.post_id)).length;
+        existing.reposts=data.reposts.filter(r=>creatorPosts.some(cp=>cp.id===r.post_id)).length;
+        existing.deals=data.deals.filter(d=>d.creator_id===p.user_id).length;
+        existing.score=(existing.likes*2)+(existing.comments*3)+(existing.reposts*4)+(existing.deals*12)+(existing.posts*.5);
+        creatorMap.set(p.user_id,existing)
+      });
+      const creators=[...creatorMap.values()].sort((a,b)=>b.score-a.score);
+
+      const creatorCards=(list)=>`<div class="trending-creators">${list.slice(0,9).map((c,i)=>{
+        const max=Math.max(1,list[0]?.score||1);
+        const isFollowing=follows.some(f=>f.following_id===c.id);
+        return `<article class="card traction-card">
+          <div class="traction-rank">#${i+1}</div>
+          <div class="traction-head">
+            <img class="traction-avatar" src="${esc(c.profile.avatar_url||EMPTY)}">
+            <div><button class="profile-link" data-profile-id="${c.id}"><h3 style="margin:0">${esc(c.profile.full_name)} ${c.profile.is_verified?'<span class="verified">✓</span>':''}</h3></button><div class="muted">@${esc(c.profile.username||'member')} · ${esc(c.profile.niche||c.profile.account_type||'creator')}</div></div>
           </div>
-        </div>
-        <p class="muted">${esc(m.bio||'New member')}</p>
-        <div class="chip" style="margin-bottom:12px">${esc(memberRecommendationReason(m))}</div>
-        <div class="member-actions">${followAction}${connectionAction}<button class="secondary" data-view="${m.id}">View profile</button></div>
-      </article>`
-    }).join(''):`<section class="card empty"><h2>No recommendations yet</h2><p class="muted">Complete your niche, location, and headline so CreatorsIn can recommend relevant members.</p></section>`;
-    bindDiscover();bindProfileLinks()
-  };
+          <div class="traction-metrics">
+            <div class="traction-metric"><strong>${c.likes}</strong><span>Likes</span></div>
+            <div class="traction-metric"><strong>${c.comments}</strong><span>Comments</span></div>
+            <div class="traction-metric"><strong>${c.reposts}</strong><span>Reposts</span></div>
+            <div class="traction-metric"><strong>${c.deals}</strong><span>Deals</span></div>
+          </div>
+          <div class="traction-score"><div class="traction-bar"><i style="width:${Math.max(4,Math.round(c.score/max*100))}%"></i></div><strong>${Math.round(c.score)}</strong></div>
+          <div class="member-actions" style="margin-top:14px">
+            ${c.id===user.id?'':isFollowing?`<button class="secondary" data-unfollow="${c.id}">Following</button>`:`<button class="primary" data-follow="${c.id}">Follow</button>`}
+            <button class="secondary" data-profile-id="${c.id}">View profile</button>
+          </div>
+        </article>`
+      }).join('')}</div>`;
 
-  renderCards(recommendedMembers(),'#recommendedGrid');
+      const contentFeed=(list)=>`<div class="trending-feed">${list.slice(0,20).map((p,i)=>renderSocialPost(p,data.likes,data.comments,data.reposts,{trending:true,rank:i+1})).join('')}</div>`;
 
-  const search=$('#memberSearch');
-  const runSearch=()=>{
-    const q=search.value.trim().toLowerCase();
-    if(!q){
-      $('#recommendedSection').classList.remove('hidden');
-      $('#searchResultsSection').classList.add('hidden');
-      return;
+      if(activeView==='creators'){
+        box.innerHTML=`<section><div class="discover-section-head"><div><h2>Rising creators</h2><p class="muted">Ranked by authentic likes, replies, reposts, posting activity, and confirmed deal momentum.</p></div></div>${creators.length?creatorCards(creators):'<section class="card empty"><h2>No creator traction yet</h2></section>'}</section>`;
+      }else if(activeView==='content'){
+        box.innerHTML=`<section><div class="discover-section-head"><div><h2>Top content</h2><p class="muted">Posts currently earning the most engagement.</p></div></div>${postStats.length?contentFeed(postStats):'<section class="card empty"><h2>No content yet</h2></section>'}</section>`;
+      }else if(activeView==='deals'){
+        const dealCreators=creators.filter(c=>c.deals>0).sort((a,b)=>b.deals-a.deals||b.score-a.score);
+        box.innerHTML=`<section><div class="discover-section-head"><div><h2>Deal momentum</h2><p class="muted">Creators with applications accepted by real businesses on CreatorsIn.</p></div></div>${dealCreators.length?creatorCards(dealCreators):'<section class="card empty"><h2>No confirmed deals yet</h2><p class="muted">Accepted opportunity applications will appear here automatically.</p></section>'}</section>`;
+      }else{
+        box.innerHTML=`<section><div class="discover-section-head"><div><h2>Creators gaining traction</h2><p class="muted">Members building momentum through real engagement and deals.</p></div><button class="secondary" data-switch-discover="creators">View all creators</button></div>${creators.length?creatorCards(creators.slice(0,6)):'<section class="card empty"><h2>No traction yet</h2></section>'}</section>
+        <section><div class="discover-section-head"><div><h2>Content taking off</h2><p class="muted">Like, comment, repost, and discover what the community values.</p></div><button class="secondary" data-switch-discover="content">View all content</button></div>${postStats.length?contentFeed(postStats.slice(0,8)):'<section class="card empty"><h2>No posts yet</h2></section>'}</section>`;
+      }
+
+      $$('[data-switch-discover]').forEach(b=>b.onclick=()=>{activeView=b.dataset.switchDiscover;$$('[data-discover-view]').forEach(x=>x.classList.toggle('active',x.dataset.discoverView===activeView));render()});
+      bindDiscover();
+      bindFeedActions();
+      bindProfileLinks()
+    }catch(e){
+      box.innerHTML=`<section class="card empty"><h2>Could not load Discover</h2><p class="muted">${esc(e.message)}</p></section>`
     }
-    const filtered=members.filter(m=>
-      (m.full_name+' '+(m.username||'')+' '+(m.headline||'')+' '+(m.niche||'')+' '+(m.location||'')+' '+(m.account_type||''))
-      .toLowerCase().includes(q)
-    );
-    $('#recommendedSection').classList.add('hidden');
-    $('#searchResultsSection').classList.remove('hidden');
-    renderCards(filtered,'#memberGrid')
   };
-  search.oninput=runSearch;
-  $('#clearMemberSearch').onclick=()=>{search.value='';runSearch();search.focus()}
+
+  $('#tractionSearch').oninput=e=>{searchQuery=e.target.value.trim().toLowerCase();render()};
+  $$('[data-discover-view]').forEach(b=>b.onclick=()=>{activeView=b.dataset.discoverView;$$('[data-discover-view]').forEach(x=>x.classList.toggle('active',x===b));render()});
+  render()
 }
 function bindDiscover(){
   $$('[data-follow]').forEach(b=>b.onclick=async()=>{
