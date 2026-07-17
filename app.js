@@ -522,10 +522,11 @@ async function fetchProfileCounts(memberId){
 }
 async function renderPublicProfile(memberId){
   await loadSocial();
-  const [{data:member,error},{data:entries},{data:pins}]=await Promise.all([
+  const [{data:member,error},{data:entries},{data:pins},{data:services}]=await Promise.all([
     sb.from('profiles').select('*').eq('id',memberId).single(),
     sb.from('profile_portfolio_entries').select('*').eq('profile_id',memberId).order('sort_order').order('start_date',{ascending:false}),
-    sb.from('profile_pinned_posts').select('post_id,position').eq('profile_id',memberId).order('position')
+    sb.from('profile_pinned_posts').select('post_id,position').eq('profile_id',memberId).order('position'),
+    sb.from('creator_services').select('*').eq('profile_id',memberId).order('sort_order').order('created_at')
   ]);
   if(error){main.innerHTML=`<section class="card empty"><h2>Profile not found</h2><p class="muted">${esc(error.message)}</p></section>`;return}
   if(memberId===user.id){profile=member;syncIdentity()}
@@ -565,6 +566,12 @@ async function renderPublicProfile(memberId){
         </div>
         <p class="creator-bio">${esc(member.bio||'This creator has not added a bio yet.')}</p>
         <div class="creator-meta">${member.niche?`<span class="chip">${esc(member.niche)}</span>`:''}<span class="chip">${esc(member.account_type||'creator')}</span>${completedDeals?`<span class="deal-badge">${completedDeals} previous deal${completedDeals===1?'':'s'}</span>`:''}</div>
+        <div class="business-status-row">
+          <span class="business-status ${member.available_for_work!==false?'open':''}">${member.available_for_work!==false?'● Open to work':'○ Not accepting work'}</span>
+          ${member.accepting_long_term?'<span class="business-status">Long-term partnerships</span>':''}
+          ${member.accepting_short_term?'<span class="business-status">Short-term projects</span>':''}
+          ${member.remote_available?'<span class="business-status">Remote available</span>':''}
+        </div>
         ${socialLinks.length?`<div class="creator-socials">${socialLinks.map(s=>`<a class="social-pill" href="${esc(s[1])}" target="_blank" rel="noopener"><span>${s[2]}</span>${s[0]}</a>`).join('')}</div>`:''}
         <div class="creator-stats">
           <div class="creator-stat"><strong>${counts.followers}</strong><span>Followers</span></div>
@@ -603,12 +610,12 @@ async function renderPublicProfile(memberId){
   $$('[data-public-profile-tab]').forEach(b=>b.onclick=()=>{
     $$('[data-public-profile-tab]').forEach(x=>x.classList.toggle('active',x===b));
     activeProfileTab=b.dataset.publicProfileTab;
-    renderPublicProfileTab(member,activeProfileTab,entries||[],pins||[])
+    renderPublicProfileTab(member,activeProfileTab,entries||[],pins||[],services||[])
   });
   activeProfileTab='overview';
-  renderPublicProfileTab(member,'overview',entries||[],pins||[])
+  renderPublicProfileTab(member,'overview',entries||[],pins||[],services||[])
 }
-async function renderPublicProfileTab(member,tab,entries=[],pins=[]){
+async function renderPublicProfileTab(member,tab,entries=[],pins=[],services=[]){
   const box=$('#publicProfileContent');
   if(!box)return;
   box.innerHTML='<section class="card profile-empty"><p class="muted">Loading profile…</p></section>';
@@ -630,11 +637,31 @@ async function renderPublicProfileTab(member,tab,entries=[],pins=[]){
         ${(recentPosts||[]).length?`<div class="feed">${recentPosts.map(p=>renderSocialPost(p,[],[],[],{showPin:isSelf,pinned:pinIds.includes(p.id)})).join('')}</div>`:'<div class="profile-empty"><p class="muted">No posts yet.</p></div>'}
       </section>
       <section class="card profile-section">
+        <div class="profile-section-head">
+          <div><h2>Services</h2><p class="muted">What this creator offers to brands and collaborators.</p></div>
+          ${isSelf?'<button class="primary" id="addServiceBtn">Add service</button>':''}
+        </div>
+        ${services.length?`<div class="service-grid">${services.map(s=>`<article class="service-card"><h3>${esc(s.name)}</h3><p>${esc(s.description||'')}</p>${s.rate?`<div class="service-rate">${esc(s.rate)}</div>`:''}${isSelf?`<div class="business-toolbar" style="margin-top:12px"><button class="secondary" data-edit-service="${s.id}">Edit</button><button class="secondary danger" data-delete-service="${s.id}">Delete</button></div>`:''}</article>`).join('')}</div>`:`<div class="profile-empty"><h3>No services listed yet</h3><p class="muted">${isSelf?'Add the ways brands can hire you.':'This creator has not listed services yet.'}</p></div>`}
+      </section>
+      <section class="card profile-section">
+        <div class="profile-section-head"><div><h2>Work availability</h2><p class="muted">Quickly see what kinds of work this creator accepts.</p></div>${isSelf?'<button class="secondary" id="editAvailabilityBtn">Edit availability</button>':''}</div>
+        <div class="availability-grid">
+          <div class="availability-item"><span>Open to work</span><strong>${member.available_for_work!==false?'Yes':'No'}</strong></div>
+          <div class="availability-item"><span>Long-term partnerships</span><strong>${member.accepting_long_term?'Yes':'No'}</strong></div>
+          <div class="availability-item"><span>Short-term projects</span><strong>${member.accepting_short_term?'Yes':'No'}</strong></div>
+          <div class="availability-item"><span>Remote work</span><strong>${member.remote_available?'Yes':'No'}</strong></div>
+          <div class="availability-item"><span>Events</span><strong>${member.events_available?'Yes':'No'}</strong></div>
+          <div class="availability-item"><span>Response time</span><strong>${esc(member.response_time||'Not listed')}</strong></div>
+        </div>
+      </section>
+      <section class="card profile-section">
         <div class="profile-section-head"><div><h2>Deals, work & milestones</h2><p class="muted">A fun creator resume showing partnerships, roles, education, and achievements.</p></div>${isSelf?'<button class="primary" id="addPortfolioEntryBtn">Add experience</button>':''}</div>
         ${renderPortfolioEntries(entries,isSelf)}
       </section>`;
-    bindFeedActions();bindProfileLinks();bindProfilePinActions(member.id);
-    $('#addPortfolioEntryBtn')?.addEventListener('click',()=>openPortfolioEntryEditor(member.id))
+    bindFeedActions();bindProfileLinks();bindProfilePinActions(member.id);bindServiceActions(member.id);
+    $('#addPortfolioEntryBtn')?.addEventListener('click',()=>openPortfolioEntryEditor(member.id));
+    $('#addServiceBtn')?.addEventListener('click',()=>openServiceEditor(member.id));
+    $('#editAvailabilityBtn')?.addEventListener('click',()=>openAvailabilityEditor(member))
   }else if(tab==='posts'){
     const [{data,error},{data:pinRows}]=await Promise.all([
       sb.from('posts').select('id,user_id,content,media_url,media_type,link_url,created_at,profiles:posts_user_id_fkey(full_name,username,headline,account_type,avatar_url,is_verified,is_founder)').eq('user_id',member.id).order('created_at',{ascending:false}),
@@ -733,6 +760,66 @@ function openPortfolioEntryEditor(profileId,entry=null){
     }
   },0)
 }
+
+function bindServiceActions(profileId){
+  $$('[data-edit-service]').forEach(b=>b.onclick=async()=>{
+    const {data,error}=await sb.from('creator_services').select('*').eq('id',b.dataset.editService).single();
+    if(error)return showToast(error.message);
+    openServiceEditor(profileId,data)
+  });
+  $$('[data-delete-service]').forEach(b=>b.onclick=async()=>{
+    if(!confirm('Delete this service?'))return;
+    const {error}=await sb.from('creator_services').delete().eq('id',b.dataset.deleteService).eq('profile_id',user.id);
+    if(error)return showToast(error.message);
+    showToast('Service deleted');
+    renderPublicProfile(profileId)
+  })
+}
+function openServiceEditor(profileId,service=null){
+  modal(service?'Edit service':'Add service',`<div class="service-editor-row">
+    <div class="wide"><label>Service name</label><input class="field" id="serviceName" value="${esc(service?.name||'')}" placeholder="UGC videos, TikTok Shop, livestream integration..."></div>
+    <div><label>Starting rate or pricing</label><input class="field" id="serviceRate" value="${esc(service?.rate||'')}" placeholder="$250+ or Contact for pricing"></div>
+    <div><label>Category</label><input class="field" id="serviceCategory" value="${esc(service?.category||'')}" placeholder="UGC, Gaming, Editing..."></div>
+    <div class="wide"><label>Description</label><textarea class="field" id="serviceDescription" placeholder="Explain exactly what a brand receives.">${esc(service?.description||'')}</textarea></div>
+  </div><button class="primary" id="saveServiceBtn" style="margin-top:14px">${service?'Save service':'Add service'}</button>`);
+  setTimeout(()=>$('#saveServiceBtn').onclick=async()=>{
+    const payload={profile_id:profileId,name:$('#serviceName').value.trim(),rate:$('#serviceRate').value.trim()||null,category:$('#serviceCategory').value.trim()||null,description:$('#serviceDescription').value.trim()||null};
+    if(!payload.name)return showToast('Add a service name');
+    const result=service
+      ?await sb.from('creator_services').update(payload).eq('id',service.id).eq('profile_id',user.id)
+      :await sb.from('creator_services').insert(payload);
+    if(result.error)return showToast(result.error.message);
+    closeModal();
+    showToast(service?'Service updated':'Service added');
+    renderPublicProfile(profileId)
+  },0)
+}
+function openAvailabilityEditor(member){
+  modal('Edit work availability',`<div class="form-grid">
+    <label><input type="checkbox" id="availableForWork" ${member.available_for_work!==false?'checked':''}> Open to work</label>
+    <label><input type="checkbox" id="acceptingLongTerm" ${member.accepting_long_term?'checked':''}> Long-term partnerships</label>
+    <label><input type="checkbox" id="acceptingShortTerm" ${member.accepting_short_term?'checked':''}> Short-term projects</label>
+    <label><input type="checkbox" id="remoteAvailable" ${member.remote_available?'checked':''}> Remote work</label>
+    <label><input type="checkbox" id="eventsAvailable" ${member.events_available?'checked':''}> Events and appearances</label>
+    <div class="wide"><label>Typical response time</label><input class="field" id="responseTime" value="${esc(member.response_time||'')}" placeholder="Within 24 hours"></div>
+  </div><button class="primary" id="saveAvailabilityBtn" style="margin-top:14px">Save availability</button>`);
+  setTimeout(()=>$('#saveAvailabilityBtn').onclick=async()=>{
+    const updates={
+      available_for_work:$('#availableForWork').checked,
+      accepting_long_term:$('#acceptingLongTerm').checked,
+      accepting_short_term:$('#acceptingShortTerm').checked,
+      remote_available:$('#remoteAvailable').checked,
+      events_available:$('#eventsAvailable').checked,
+      response_time:$('#responseTime').value.trim()||null
+    };
+    const {error}=await sb.from('profiles').update(updates).eq('id',user.id);
+    if(error)return showToast(error.message);
+    closeModal();
+    showToast('Availability updated');
+    renderPublicProfile(user.id)
+  },0)
+}
+
 function openCreatorProfileEditor(member){
   modal('Edit creator profile',`<div class="profile-edit-grid">
     <div><label>Display name</label><input class="field" id="creatorEditName" value="${esc(member.full_name||'')}"></div>
