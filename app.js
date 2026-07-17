@@ -1471,7 +1471,93 @@ window.addEventListener('popstate',async event=>{
   else if(!(await routeFromLocation()))setPage('feed')
 });
 
-async function init(){const {data}=await sb.auth.getSession();if(!data.session){gate.classList.remove('hidden');return}user=data.session.user;gate.classList.add('hidden');await ensureProfile();syncIdentity();await loadSocial();initializeSettings();if(needsOnboarding(profile))launchOnboarding();else if(!(await routeFromLocation()))setPage('dashboard');sb.channel('messages-live').on('postgres_changes',{event:'INSERT',schema:'public',table:'messages'},payload=>{if(activeConversation&&payload.new.conversation_id===activeConversation)openConversation(activeConversation)}).subscribe()}
+
+function publicPostText(text){
+  return esc(text||'').replace(/(^|\s)@([A-Za-z0-9_.-]+)/g,'$1<span class="mention">@$2</span>').replace(/\n/g,'<br>');
+}
+function scrollToPublicAuth(mode='signup'){
+  setAuthMode(mode);
+  document.querySelector('.public-auth-side')?.scrollIntoView({behavior:'smooth',block:'start'});
+  setTimeout(()=>$('#emailInput')?.focus(),350)
+}
+async function renderPublicHome(){
+  gate.classList.remove('hidden');
+  document.querySelector('header')?.classList.add('hidden');
+  document.querySelector('.layout')?.classList.add('hidden');
+
+  $('#publicLoginBtn')?.addEventListener('click',()=>scrollToPublicAuth('login'));
+  $('#publicSignupBtn')?.addEventListener('click',()=>scrollToPublicAuth('signup'));
+  $('#heroLoginBtn')?.addEventListener('click',()=>scrollToPublicAuth('login'));
+  $('#heroSignupBtn')?.addEventListener('click',()=>scrollToPublicAuth('signup'));
+
+  const feed=$('#publicFeed');
+  if(!feed)return;
+
+  const [{data:posts,error},{data:likes},{data:comments},{data:reposts}]=await Promise.all([
+    sb.from('posts').select('id,user_id,content,media_url,media_type,link_url,created_at,profiles:posts_user_id_fkey(full_name,username,headline,account_type,avatar_url,is_verified,is_founder)').order('created_at',{ascending:false}).limit(30),
+    sb.from('post_likes').select('post_id'),
+    sb.from('post_comments').select('post_id'),
+    sb.from('post_reposts').select('post_id')
+  ]);
+
+  if(error){
+    feed.innerHTML=`<section class="card public-empty"><h3>Creator content is waiting</h3><p class="muted">Join or log in to explore CreatorsIn.</p></section>`;
+    return
+  }
+
+  if(!(posts||[]).length){
+    feed.innerHTML=`<section class="card public-empty"><h2>Be one of the first creators to post</h2><p class="muted">The feed only shows genuine content from registered accounts.</p><button class="primary" id="emptyFeedSignup">Create your profile</button></section>`;
+    $('#emptyFeedSignup')?.addEventListener('click',()=>scrollToPublicAuth('signup'));
+    return
+  }
+
+  feed.innerHTML=posts.map(p=>{
+    const likeCount=(likes||[]).filter(x=>x.post_id===p.id).length;
+    const commentCount=(comments||[]).filter(x=>x.post_id===p.id).length;
+    const repostCount=(reposts||[]).filter(x=>x.post_id===p.id).length;
+    return `<article class="card public-post">
+      <div class="public-post-head">
+        <img src="${esc(p.profiles?.avatar_url||EMPTY)}" alt="${esc(p.profiles?.full_name||'Creator')}">
+        <div style="min-width:0;flex:1">
+          <strong>${esc(p.profiles?.full_name||'Creator')} ${p.profiles?.is_verified?'<span class="verified">✓</span>':''}${p.profiles?.is_founder?'<span class="badge">Founder</span>':''}</strong>
+          <div class="muted">@${esc(p.profiles?.username||'member')} · ${esc(p.profiles?.headline||p.profiles?.account_type||'creator')} · ${formatRelativeTime(p.created_at)}</div>
+        </div>
+      </div>
+      ${p.content?`<div class="public-post-copy"><p>${publicPostText(p.content)}</p></div>`:''}
+      ${p.link_url?`<a class="public-post-link" href="${esc(p.link_url)}" target="_blank" rel="noopener"><strong>Open shared link ↗</strong><br>${esc(p.link_url)}</a>`:''}
+      ${p.media_url?(p.media_type==='video'
+        ?`<video class="public-post-media" controls playsinline preload="metadata" src="${esc(p.media_url)}"></video>`
+        :`<img class="public-post-media" loading="lazy" src="${esc(p.media_url)}" alt="Creator content">`):''}
+      <div class="public-engagement">
+        <span>♡ ${likeCount}</span>
+        <span>↩ ${commentCount}</span>
+        <span>⟳ ${repostCount}</span>
+      </div>
+    </article>`
+  }).join('')
+}
+
+async function init(){
+  const {data}=await sb.auth.getSession();
+  if(!data.session){
+    user=null;
+    await renderPublicHome();
+    return
+  }
+  user=data.session.user;
+  gate.classList.add('hidden');
+  document.querySelector('header')?.classList.remove('hidden');
+  document.querySelector('.layout')?.classList.remove('hidden');
+  await ensureProfile();
+  syncIdentity();
+  await loadSocial();
+  initializeSettings();
+  if(needsOnboarding(profile))launchOnboarding();
+  else if(!(await routeFromLocation()))setPage('feed');
+  sb.channel('messages-live').on('postgres_changes',{event:'INSERT',schema:'public',table:'messages'},payload=>{
+    if(activeConversation&&payload.new.conversation_id===activeConversation)openConversation(activeConversation)
+  }).subscribe()
+}
 sb.auth.onAuthStateChange((_e,s)=>{if(s?.user&&!user){user=s.user;init()}else if(!s?.user&&user)location.reload()});
 init();
 })()
