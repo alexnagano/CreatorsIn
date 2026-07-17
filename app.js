@@ -229,7 +229,7 @@ function renderSocialPost(p,likes=[],comments=[],reposts=[],options={}){
   const engagement=postLikes.length+postComments.length+(postReposts.length*2);
   return `<article class="card social-post">
     ${options.trending?`<div class="repost-context"><span class="engagement-label">🔥 ${engagement} engagement points</span>${options.rank?`<span>Trending #${options.rank}</span>`:''}</div>`:''}
-    <div class="social-post-header"><img class="avatar" src="${esc(p.profiles?.avatar_url||EMPTY)}"><div style="flex:1"><button class="profile-link" data-profile-id="${p.user_id}"><strong>${esc(p.profiles?.full_name||'Member')} ${p.profiles?.is_verified?'<span class="verified">✓</span>':''}${p.profiles?.is_founder?'<span class="badge">Founder</span>':''}</strong></button><div class="muted">@${esc(p.profiles?.username||'member')} · ${new Date(p.created_at).toLocaleString()}</div></div>${p.user_id===user.id?`<button class="secondary danger" data-delete-post="${p.id}">Delete</button>`:''}</div>
+    <div class="social-post-header"><img class="avatar" src="${esc(p.profiles?.avatar_url||EMPTY)}"><div style="flex:1"><button class="profile-link" data-profile-id="${p.user_id}"><strong>${esc(p.profiles?.full_name||'Member')} ${p.profiles?.is_verified?'<span class="verified">✓</span>':''}${p.profiles?.is_founder?'<span class="badge">Founder</span>':''}</strong></button><div class="muted">@${esc(p.profiles?.username||'member')} · ${new Date(p.created_at).toLocaleString()}</div></div><div style="display:flex;gap:6px;align-items:center">${options.showPin?(options.pinned?`<button class="secondary pin-control" data-unpin-profile-post="${p.id}">Pinned</button>`:`<button class="secondary pin-control" data-pin-profile-post="${p.id}">Pin</button>`):''}${p.user_id===user.id?`<button class="secondary danger" data-delete-post="${p.id}">Delete</button>`:''}</div></div>
     <div class="social-post-body">${p.content?`<p>${renderPostText(p.content)}</p>`:''}${p.link_url?`<a class="post-link" href="${esc(p.link_url)}" target="_blank" rel="noopener"><strong>Open link ↗</strong><br>${esc(p.link_url)}</a>`:''}</div>
     ${p.media_url?(p.media_type==='video'?`<video class="post-media" controls preload="metadata" src="${esc(p.media_url)}"></video>`:`<img class="post-media" loading="lazy" src="${esc(p.media_url)}" alt="Post media">`):''}
     <div class="post-actions">
@@ -490,8 +490,13 @@ async function fetchProfileCounts(memberId){
 }
 async function renderPublicProfile(memberId){
   await loadSocial();
-  const {data:member,error}=await sb.from('profiles').select('*').eq('id',memberId).single();
+  const [{data:member,error},{data:entries},{data:pins}]=await Promise.all([
+    sb.from('profiles').select('*').eq('id',memberId).single(),
+    sb.from('profile_portfolio_entries').select('*').eq('profile_id',memberId).order('sort_order').order('start_date',{ascending:false}),
+    sb.from('profile_pinned_posts').select('post_id,position').eq('profile_id',memberId).order('position')
+  ]);
   if(error){main.innerHTML=`<section class="card empty"><h2>Profile not found</h2><p class="muted">${esc(error.message)}</p></section>`;return}
+  if(memberId===user.id){profile=member;syncIdentity()}
   const counts=await fetchProfileCounts(memberId);
   const isSelf=memberId===user.id;
   const rel=relationship(memberId);
@@ -505,43 +510,51 @@ async function renderPublicProfile(memberId){
     ?`<button class="secondary" data-profile-unfollow="${memberId}">Following</button>`
     :`<button class="primary" data-profile-follow="${memberId}">Follow</button>`;
   const messageButton=isSelf?'':`<button class="secondary" data-profile-message="${memberId}">Message</button>`;
+  const socialLinks=[
+    ['Website',member.website_url,'↗'],['Instagram',member.instagram_url,'◎'],['TikTok',member.tiktok_url,'♪'],
+    ['YouTube',member.youtube_url,'▶'],['Twitch',member.twitch_url,'◈'],['X',member.x_url,'𝕏'],
+    ['LinkedIn',member.linkedin_url,'in'],['Discord',member.discord_url,'◉']
+  ].filter(x=>x[1]);
+  const completedDeals=(entries||[]).filter(e=>e.entry_type==='deal').length;
   const shareUrl=`${location.origin}/${encodeURIComponent(member.username||member.id)}`;
-  main.innerHTML=`<div class="public-profile">
-    <button class="secondary profile-back" id="profileBackBtn">← Back</button>
-    <section class="card public-profile-card">
-      <div class="public-cover" style="${member.banner_url?`background-image:url('${esc(member.banner_url)}')`:''}"></div>
-      <div class="public-profile-main">
-        <div class="public-profile-top">
-          <img class="public-profile-avatar" src="${esc(member.avatar_url||EMPTY)}" alt="${esc(member.full_name)}">
-          <div class="public-profile-copy">
-            <h1>${esc(member.full_name)} ${member.is_verified?'<span class="verified">✓</span>':''}${member.is_founder?'<span class="badge">Founder</span>':''}</h1>
-            <div class="muted">@${esc(member.username||'member')} · ${esc(member.headline||member.account_type||'member')}</div>
-            ${member.location?`<div class="muted">${esc(member.location)}</div>`:''}
+  main.innerHTML=`<div class="creator-profile">
+    ${!isSelf?'<button class="secondary profile-back" id="profileBackBtn">← Back</button>':''}
+    <section class="card creator-hero-card">
+      <div class="creator-banner" style="${member.banner_url?`background-image:url('${esc(member.banner_url)}')`:''}"></div>
+      <div class="creator-profile-body">
+        <div class="creator-profile-top">
+          <img class="creator-profile-photo" src="${esc(member.avatar_url||EMPTY)}" alt="${esc(member.full_name)}">
+          <div class="creator-identity">
+            <div class="creator-name-row"><h1>${esc(member.full_name)}</h1>${member.is_verified?'<span class="verified">✓</span>':''}${member.is_founder?'<span class="badge">Founder</span>':''}</div>
+            <div class="creator-tagline">${esc(member.headline||member.account_type||'Creator')}</div>
+            <div class="muted">@${esc(member.username||'member')}${member.location?` · ${esc(member.location)}`:''}</div>
           </div>
-          <div class="public-profile-actions">${followButton}${connectionButton}${messageButton}${isSelf?'<button class="primary" data-page="profile">Edit profile</button>':''}</div>
+          <div class="creator-actions">${followButton}${connectionButton}${messageButton}${isSelf?'<button class="primary" id="editOwnProfileBtn">Edit profile</button>':''}<button class="secondary" id="copyProfileLinkBtn">Share profile</button></div>
         </div>
-        <div class="profile-counts">
-          <button><strong>${counts.followers}</strong><span>Followers</span></button>
-          <button><strong>${counts.following}</strong><span>Following</span></button>
-          <button><strong>${counts.connections}</strong><span>Connections</span></button>
-          <button><strong>${counts.posts}</strong><span>Posts</span></button>
-        </div>
-        <div class="share-profile-row">
-          <button class="secondary" id="copyProfileLinkBtn">Copy profile link</button>
-          <span class="muted">${esc(shareUrl)}</span>
+        <p class="creator-bio">${esc(member.bio||'This creator has not added a bio yet.')}</p>
+        <div class="creator-meta">${member.niche?`<span class="chip">${esc(member.niche)}</span>`:''}<span class="chip">${esc(member.account_type||'creator')}</span>${completedDeals?`<span class="deal-badge">${completedDeals} previous deal${completedDeals===1?'':'s'}</span>`:''}</div>
+        ${socialLinks.length?`<div class="creator-socials">${socialLinks.map(s=>`<a class="social-pill" href="${esc(s[1])}" target="_blank" rel="noopener"><span>${s[2]}</span>${s[0]}</a>`).join('')}</div>`:''}
+        <div class="creator-stats">
+          <div class="creator-stat"><strong>${counts.followers}</strong><span>Followers</span></div>
+          <div class="creator-stat"><strong>${counts.following}</strong><span>Following</span></div>
+          <div class="creator-stat"><strong>${counts.posts}</strong><span>Posts</span></div>
+          <div class="creator-stat"><strong>${completedDeals}</strong><span>Deals & experience</span></div>
         </div>
       </div>
     </section>
-    <div class="profile-tabs">
-      <button class="active" data-public-profile-tab="posts">Posts</button>
+    <div class="creator-profile-tabs">
+      <button class="active" data-public-profile-tab="overview">Overview</button>
+      <button data-public-profile-tab="posts">Posts</button>
       <button data-public-profile-tab="media">Media</button>
+      <button data-public-profile-tab="experience">Deals & resume</button>
       <button data-public-profile-tab="about">About</button>
       ${['brand','agency'].includes(member.account_type)?'<button data-public-profile-tab="opportunities">Opportunities</button>':''}
     </div>
     <div id="publicProfileContent"></div>
   </div>`;
-  $('#profileBackBtn').onclick=()=>{history.back()};
+  $('#profileBackBtn')?.addEventListener('click',()=>history.back());
   $('#copyProfileLinkBtn').onclick=async()=>{await navigator.clipboard.writeText(shareUrl);showToast('Profile link copied')};
+  $('#editOwnProfileBtn')?.addEventListener('click',()=>openCreatorProfileEditor(member));
   $('[data-profile-follow]')?.addEventListener('click',async()=>{
     const {error}=await sb.from('follows').insert({follower_id:user.id,following_id:memberId});
     if(error)return showToast(error.message);showToast('Following member');await renderPublicProfile(memberId)
@@ -555,50 +568,172 @@ async function renderPublicProfile(memberId){
     if(error)return showToast(error.message);showToast('Connection request sent');await renderPublicProfile(memberId)
   });
   $('[data-profile-message]')?.addEventListener('click',()=>startConversation(memberId));
-  $('[data-page="profile"]')?.addEventListener('click',()=>setPage('profile'));
   $$('[data-public-profile-tab]').forEach(b=>b.onclick=()=>{
     $$('[data-public-profile-tab]').forEach(x=>x.classList.toggle('active',x===b));
     activeProfileTab=b.dataset.publicProfileTab;
-    renderPublicProfileTab(member,activeProfileTab)
+    renderPublicProfileTab(member,activeProfileTab,entries||[],pins||[])
   });
-  renderPublicProfileTab(member,'posts')
+  activeProfileTab='overview';
+  renderPublicProfileTab(member,'overview',entries||[],pins||[])
 }
-async function renderPublicProfileTab(member,tab){
+async function renderPublicProfileTab(member,tab,entries=[],pins=[]){
   const box=$('#publicProfileContent');
   if(!box)return;
-  box.innerHTML='<section class="card empty"><p class="muted">Loading…</p></section>';
-  if(tab==='posts'){
-    const {data,error}=await sb.from('posts').select('id,user_id,content,media_url,media_type,link_url,created_at,profiles:posts_user_id_fkey(full_name,username,headline,account_type,avatar_url,is_verified,is_founder)').eq('user_id',member.id).order('created_at',{ascending:false});
-    if(error)return box.innerHTML=`<section class="card empty"><p class="muted">${esc(error.message)}</p></section>`;
-    box.innerHTML=(data||[]).length?`<div class="feed">${data.map(p=>renderSocialPost(p,[],[])).join('')}</div>`:`<section class="card empty"><h2>No posts yet</h2><p class="muted">${esc(member.full_name)} has not posted yet.</p></section>`;
-    bindFeedActions();bindProfileLinks()
+  box.innerHTML='<section class="card profile-empty"><p class="muted">Loading profile…</p></section>';
+  const isSelf=member.id===user.id;
+  if(tab==='overview'){
+    const pinIds=pins.map(p=>p.post_id);
+    const [{data:pinnedPosts},{data:recentPosts}]=await Promise.all([
+      pinIds.length?sb.from('posts').select('id,user_id,content,media_url,media_type,link_url,created_at,profiles:posts_user_id_fkey(full_name,username,headline,account_type,avatar_url,is_verified,is_founder)').in('id',pinIds):Promise.resolve({data:[]}),
+      sb.from('posts').select('id,user_id,content,media_url,media_type,link_url,created_at,profiles:posts_user_id_fkey(full_name,username,headline,account_type,avatar_url,is_verified,is_founder)').eq('user_id',member.id).order('created_at',{ascending:false}).limit(3)
+    ]);
+    const orderedPinned=pinIds.map(id=>(pinnedPosts||[]).find(p=>p.id===id)).filter(Boolean);
+    box.innerHTML=`
+      <section class="card profile-section">
+        <div class="profile-section-head"><div><h2>Featured content</h2><p class="muted">${isSelf?'Pin up to three posts so brands see your best work first.':'The creator’s best work, selected for brands and collaborators.'}</p></div></div>
+        ${orderedPinned.length?`<div class="featured-posts">${orderedPinned.map(p=>renderFeaturedPost(p,isSelf)).join('')}</div>`:`<div class="profile-empty"><h3>No featured posts yet</h3><p class="muted">${isSelf?'Open the Posts tab and pin your strongest content.':'This creator has not featured content yet.'}</p></div>`}
+      </section>
+      <section class="card profile-section">
+        <div class="profile-section-head"><div><h2>Recent activity</h2><p class="muted">Latest posts and content.</p></div></div>
+        ${(recentPosts||[]).length?`<div class="feed">${recentPosts.map(p=>renderSocialPost(p,[],[],[],{showPin:isSelf,pinned:pinIds.includes(p.id)})).join('')}</div>`:'<div class="profile-empty"><p class="muted">No posts yet.</p></div>'}
+      </section>
+      <section class="card profile-section">
+        <div class="profile-section-head"><div><h2>Deals, work & milestones</h2><p class="muted">A fun creator resume showing partnerships, roles, education, and achievements.</p></div>${isSelf?'<button class="primary" id="addPortfolioEntryBtn">Add experience</button>':''}</div>
+        ${renderPortfolioEntries(entries,isSelf)}
+      </section>`;
+    bindFeedActions();bindProfileLinks();bindProfilePinActions(member.id);
+    $('#addPortfolioEntryBtn')?.addEventListener('click',()=>openPortfolioEntryEditor(member.id))
+  }else if(tab==='posts'){
+    const [{data,error},{data:pinRows}]=await Promise.all([
+      sb.from('posts').select('id,user_id,content,media_url,media_type,link_url,created_at,profiles:posts_user_id_fkey(full_name,username,headline,account_type,avatar_url,is_verified,is_founder)').eq('user_id',member.id).order('created_at',{ascending:false}),
+      sb.from('profile_pinned_posts').select('post_id').eq('profile_id',member.id)
+    ]);
+    if(error)return box.innerHTML=`<section class="card profile-empty"><p class="muted">${esc(error.message)}</p></section>`;
+    const pinnedIds=(pinRows||[]).map(x=>x.post_id);
+    box.innerHTML=(data||[]).length?`<div class="feed">${data.map(p=>renderSocialPost(p,[],[],[],{showPin:isSelf,pinned:pinnedIds.includes(p.id)})).join('')}</div>`:`<section class="card profile-empty"><h2>No posts yet</h2></section>`;
+    bindFeedActions();bindProfileLinks();bindProfilePinActions(member.id)
   }else if(tab==='media'){
     const {data,error}=await sb.from('posts').select('id,media_url,media_type').eq('user_id',member.id).not('media_url','is',null).order('created_at',{ascending:false});
-    if(error)return box.innerHTML=`<section class="card empty"><p class="muted">${esc(error.message)}</p></section>`;
-    box.innerHTML=(data||[]).length?`<section class="card profile-about"><div class="profile-media-grid">${data.map(p=>p.media_type==='video'?`<video controls preload="metadata" src="${esc(p.media_url)}"></video>`:`<img loading="lazy" src="${esc(p.media_url)}" alt="Profile media">`).join('')}</div></section>`:`<section class="card empty"><h2>No media yet</h2></section>`
+    if(error)return box.innerHTML=`<section class="card profile-empty"><p class="muted">${esc(error.message)}</p></section>`;
+    box.innerHTML=(data||[]).length?`<section class="card profile-section"><div class="profile-media-grid">${data.map(p=>p.media_type==='video'?`<video controls preload="metadata" src="${esc(p.media_url)}"></video>`:`<img loading="lazy" src="${esc(p.media_url)}" alt="Profile media">`).join('')}</div></section>`:`<section class="card profile-empty"><h2>No media yet</h2></section>`
+  }else if(tab==='experience'){
+    box.innerHTML=`<section class="card profile-section"><div class="profile-section-head"><div><h2>Deals & resume</h2><p class="muted">Partnerships, roles, education, collaborations, and creator milestones.</p></div>${isSelf?'<button class="primary" id="addPortfolioEntryBtn">Add experience</button>':''}</div>${renderPortfolioEntries(entries,isSelf)}</section>`;
+    $('#addPortfolioEntryBtn')?.addEventListener('click',()=>openPortfolioEntryEditor(member.id));
+    bindPortfolioActions(member.id)
   }else if(tab==='about'){
-    box.innerHTML=`<section class="card profile-about">
-      <h2>About</h2><p>${esc(member.bio||'No bio added yet.')}</p>
+    box.innerHTML=`<section class="card profile-section">
+      <div class="profile-section-head"><div><h2>About ${esc(member.full_name)}</h2></div></div>
+      <p style="font-size:17px;line-height:1.65">${esc(member.bio||'No bio added yet.')}</p>
       <div class="profile-about-grid">
-        <div class="profile-about-item"><strong>Account type</strong><span>${esc(member.account_type||'member')}</span></div>
+        <div class="profile-about-item"><strong>Creator type</strong><span>${esc(member.account_type||'creator')}</span></div>
         <div class="profile-about-item"><strong>Niche or industry</strong><span>${esc(member.niche||'Not listed')}</span></div>
         <div class="profile-about-item"><strong>Location</strong><span>${esc(member.location||'Not listed')}</span></div>
         <div class="profile-about-item"><strong>Member since</strong><span>${new Date(member.created_at).toLocaleDateString()}</span></div>
       </div>
-      <div class="profile-socials">
-        ${member.website_url?`<a class="secondary" href="${esc(member.website_url)}" target="_blank" rel="noopener">Website</a>`:''}
-        ${member.instagram_url?`<a class="secondary" href="${esc(member.instagram_url)}" target="_blank" rel="noopener">Instagram</a>`:''}
-        ${member.tiktok_url?`<a class="secondary" href="${esc(member.tiktok_url)}" target="_blank" rel="noopener">TikTok</a>`:''}
-        ${member.youtube_url?`<a class="secondary" href="${esc(member.youtube_url)}" target="_blank" rel="noopener">YouTube</a>`:''}
-        ${member.twitch_url?`<a class="secondary" href="${esc(member.twitch_url)}" target="_blank" rel="noopener">Twitch</a>`:''}
-      </div>
     </section>`
   }else if(tab==='opportunities'){
     const {data,error}=await sb.from('opportunities').select('*').eq('business_id',member.id).eq('status','open').order('created_at',{ascending:false});
-    if(error)return box.innerHTML=`<section class="card empty"><p class="muted">${esc(error.message)}</p></section>`;
-    box.innerHTML=(data||[]).length?`<div class="feed">${data.map(o=>`<article class="card opportunity"><h3>${esc(o.title)}</h3><p>${esc(o.description)}</p><div class="opportunity-meta">${o.compensation?`<span class="chip">${esc(o.compensation)}</span>`:''}${o.opportunity_type?`<span class="chip">${esc(o.opportunity_type)}</span>`:''}${o.platforms?`<span class="chip">${esc(o.platforms)}</span>`:''}</div><button class="primary" data-page="opportunities">View opportunity</button></article>`).join('')}</div>`:`<section class="card empty"><h2>No open opportunities</h2></section>`;
+    if(error)return box.innerHTML=`<section class="card profile-empty"><p class="muted">${esc(error.message)}</p></section>`;
+    box.innerHTML=(data||[]).length?`<div class="feed">${data.map(o=>`<article class="card opportunity"><h3>${esc(o.title)}</h3><p>${esc(o.description)}</p><div class="opportunity-meta">${o.compensation?`<span class="chip">${esc(o.compensation)}</span>`:''}${o.opportunity_type?`<span class="chip">${esc(o.opportunity_type)}</span>`:''}${o.platforms?`<span class="chip">${esc(o.platforms)}</span>`:''}</div><button class="primary" data-page="opportunities">View opportunity</button></article>`).join('')}</div>`:`<section class="card profile-empty"><h2>No open opportunities</h2></section>`;
     $$('[data-page="opportunities"]').forEach(b=>b.onclick=()=>setPage('opportunities'))
   }
+}
+function renderFeaturedPost(p,isSelf){
+  return `<article class="featured-post">
+    ${p.media_url?(p.media_type==='video'?`<video class="featured-post-media" controls preload="metadata" src="${esc(p.media_url)}"></video>`:`<img class="featured-post-media" src="${esc(p.media_url)}" alt="Featured content">`):''}
+    <div class="featured-post-content"><span class="featured-label">📌 Featured</span>${p.content?`<p>${renderPostText(p.content)}</p>`:''}${p.link_url?`<a href="${esc(p.link_url)}" target="_blank" rel="noopener">Open link ↗</a>`:''}${isSelf?`<button class="secondary pin-control" data-unpin-profile-post="${p.id}" style="margin-top:10px">Unpin</button>`:''}</div>
+  </article>`
+}
+function renderPortfolioEntries(entries,isSelf){
+  if(!entries.length)return `<div class="profile-empty"><h3>No experience added yet</h3><p class="muted">${isSelf?'Add previous brand deals, creator work, education, achievements, or collaborations.':'This profile has not added experience yet.'}</p></div>`;
+  const icons={deal:'🤝',experience:'💼',education:'🎓',achievement:'🏆',collaboration:'🎬'};
+  return `<div class="portfolio-timeline">${entries.map(e=>`<article class="portfolio-entry">
+    <div class="portfolio-icon">${icons[e.entry_type]||'✨'}</div>
+    <div><div class="muted">${esc((e.entry_type||'experience').toUpperCase())}</div><h3>${esc(e.title)}</h3><strong>${esc(e.organization||'')}</strong>${e.start_date||e.end_date?`<div class="muted">${e.start_date?new Date(e.start_date+'T00:00:00').toLocaleDateString([],{month:'short',year:'numeric'}):''}${e.end_date?` – ${new Date(e.end_date+'T00:00:00').toLocaleDateString([],{month:'short',year:'numeric'})}`:' – Present'}</div>`:''}${e.deal_value?`<div class="portfolio-value">${esc(e.deal_value)}</div>`:''}${e.description?`<p>${esc(e.description)}</p>`:''}${e.external_url?`<a href="${esc(e.external_url)}" target="_blank" rel="noopener">View project ↗</a>`:''}</div>
+    ${isSelf?`<div class="portfolio-entry-actions"><button class="secondary" data-edit-entry="${e.id}">Edit</button><button class="secondary danger" data-delete-entry="${e.id}">Delete</button></div>`:''}
+  </article>`).join('')}</div>`
+}
+function bindProfilePinActions(profileId){
+  $$('[data-pin-profile-post]').forEach(b=>b.onclick=async()=>{
+    const {count}=await sb.from('profile_pinned_posts').select('*',{count:'exact',head:true}).eq('profile_id',profileId);
+    if((count||0)>=3)return showToast('You can pin up to three posts');
+    const {error}=await sb.from('profile_pinned_posts').insert({profile_id:profileId,post_id:b.dataset.pinProfilePost,position:(count||0)+1});
+    if(error)return showToast(error.message);showToast('Post pinned');renderPublicProfile(profileId)
+  });
+  $$('[data-unpin-profile-post]').forEach(b=>b.onclick=async()=>{
+    const postId=b.dataset.unpinProfilePost;
+    const {error}=await sb.from('profile_pinned_posts').delete().eq('profile_id',profileId).eq('post_id',postId);
+    if(error)return showToast(error.message);showToast('Post unpinned');renderPublicProfile(profileId)
+  })
+}
+function bindPortfolioActions(profileId){
+  $$('[data-edit-entry]').forEach(b=>b.onclick=async()=>{
+    const {data,error}=await sb.from('profile_portfolio_entries').select('*').eq('id',b.dataset.editEntry).single();
+    if(error)return showToast(error.message);openPortfolioEntryEditor(profileId,data)
+  });
+  $$('[data-delete-entry]').forEach(b=>b.onclick=async()=>{
+    if(!confirm('Delete this profile entry?'))return;
+    const {error}=await sb.from('profile_portfolio_entries').delete().eq('id',b.dataset.deleteEntry).eq('profile_id',user.id);
+    if(error)return showToast(error.message);showToast('Entry deleted');renderPublicProfile(profileId)
+  })
+}
+function openPortfolioEntryEditor(profileId,entry=null){
+  modal(entry?'Edit experience':'Add experience',`<div class="form-grid">
+    <div><label>Type</label><select class="field" id="entryType"><option value="deal">Brand deal</option><option value="collaboration">Collaboration</option><option value="experience">Work experience</option><option value="education">Education</option><option value="achievement">Achievement</option></select></div>
+    <div><label>Organization or brand</label><input class="field" id="entryOrganization" value="${esc(entry?.organization||'')}"></div>
+    <div class="wide"><label>Title</label><input class="field" id="entryTitle" value="${esc(entry?.title||'')}" placeholder="UGC Campaign, Creator Partner, Marketing Intern..."></div>
+    <div><label>Start date</label><input class="field" id="entryStart" type="date" value="${esc(entry?.start_date||'')}"></div>
+    <div><label>End date</label><input class="field" id="entryEnd" type="date" value="${esc(entry?.end_date||'')}"></div>
+    <div><label>Deal value or result</label><input class="field" id="entryValue" value="${esc(entry?.deal_value||'')}" placeholder="$3,500 · 2.1M views · 15 videos"></div>
+    <div><label>Project link</label><input class="field" id="entryUrl" value="${esc(entry?.external_url||'')}" placeholder="https://"></div>
+    <div class="wide"><label>Description</label><textarea class="field" id="entryDescription">${esc(entry?.description||'')}</textarea></div>
+  </div><button class="primary" id="saveEntryBtn" style="margin-top:14px">${entry?'Save entry':'Add to profile'}</button>`);
+  setTimeout(()=>{
+    $('#entryType').value=entry?.entry_type||'deal';
+    $('#saveEntryBtn').onclick=async()=>{
+      const payload={profile_id:profileId,entry_type:$('#entryType').value,organization:$('#entryOrganization').value.trim()||null,title:$('#entryTitle').value.trim(),start_date:$('#entryStart').value||null,end_date:$('#entryEnd').value||null,deal_value:$('#entryValue').value.trim()||null,external_url:$('#entryUrl').value.trim()||null,description:$('#entryDescription').value.trim()||null};
+      if(!payload.title)return showToast('Add a title');
+      const result=entry
+        ?await sb.from('profile_portfolio_entries').update(payload).eq('id',entry.id).eq('profile_id',user.id)
+        :await sb.from('profile_portfolio_entries').insert(payload);
+      if(result.error)return showToast(result.error.message);
+      closeModal();showToast(entry?'Entry updated':'Experience added');renderPublicProfile(profileId)
+    }
+  },0)
+}
+function openCreatorProfileEditor(member){
+  modal('Edit creator profile',`<div class="profile-edit-grid">
+    <div><label>Display name</label><input class="field" id="creatorEditName" value="${esc(member.full_name||'')}"></div>
+    <div><label>Username</label><input class="field" id="creatorEditUsername" value="${esc(member.username||'')}" placeholder="your.username"></div>
+    <div class="wide"><label>Headline</label><input class="field" id="creatorEditHeadline" value="${esc(member.headline||'')}" placeholder="Gaming creator · UGC specialist · Streamer"></div>
+    <div><label>Niche or industry</label><input class="field" id="creatorEditNiche" value="${esc(member.niche||'')}"></div>
+    <div><label>Location</label><input class="field" id="creatorEditLocation" value="${esc(member.location||'')}"></div>
+    <div class="wide"><label>Bio</label><textarea class="field" id="creatorEditBio">${esc(member.bio||'')}</textarea></div>
+    <div><label>Profile picture</label><input class="field" id="creatorEditAvatar" type="file" accept="image/*"><img class="asset-preview" src="${esc(member.avatar_url||EMPTY)}"></div>
+    <div><label>Banner image</label><input class="field" id="creatorEditBanner" type="file" accept="image/*">${member.banner_url?`<img class="banner-preview" src="${esc(member.banner_url)}">`:''}</div>
+    <div><label>Website</label><input class="field" id="creatorEditWebsite" value="${esc(member.website_url||'')}"></div>
+    <div><label>Instagram</label><input class="field" id="creatorEditInstagram" value="${esc(member.instagram_url||'')}"></div>
+    <div><label>TikTok</label><input class="field" id="creatorEditTikTok" value="${esc(member.tiktok_url||'')}"></div>
+    <div><label>YouTube</label><input class="field" id="creatorEditYouTube" value="${esc(member.youtube_url||'')}"></div>
+    <div><label>Twitch</label><input class="field" id="creatorEditTwitch" value="${esc(member.twitch_url||'')}"></div>
+    <div><label>X / Twitter</label><input class="field" id="creatorEditX" value="${esc(member.x_url||'')}"></div>
+    <div><label>LinkedIn</label><input class="field" id="creatorEditLinkedIn" value="${esc(member.linkedin_url||'')}"></div>
+    <div><label>Discord invite or profile</label><input class="field" id="creatorEditDiscord" value="${esc(member.discord_url||'')}"></div>
+  </div><button class="primary" id="saveCreatorProfileBtn" style="margin-top:15px">Save profile</button>`);
+  setTimeout(()=>$('#saveCreatorProfileBtn').onclick=async()=>{
+    let avatar=member.avatar_url||null,banner=member.banner_url||null;
+    try{
+      if($('#creatorEditAvatar').files[0])avatar=await uploadProfileAsset($('#creatorEditAvatar').files[0],'avatar');
+      if($('#creatorEditBanner').files[0])banner=await uploadProfileAsset($('#creatorEditBanner').files[0],'banner')
+    }catch(err){return showToast(err.message)}
+    const username=$('#creatorEditUsername').value.trim().toLowerCase().replace(/[^a-z0-9._-]/g,'');
+    const updates={full_name:$('#creatorEditName').value.trim(),username,headline:$('#creatorEditHeadline').value.trim()||null,niche:$('#creatorEditNiche').value.trim()||null,location:$('#creatorEditLocation').value.trim()||null,bio:$('#creatorEditBio').value.trim()||null,avatar_url:avatar,banner_url:banner,website_url:$('#creatorEditWebsite').value.trim()||null,instagram_url:$('#creatorEditInstagram').value.trim()||null,tiktok_url:$('#creatorEditTikTok').value.trim()||null,youtube_url:$('#creatorEditYouTube').value.trim()||null,twitch_url:$('#creatorEditTwitch').value.trim()||null,x_url:$('#creatorEditX').value.trim()||null,linkedin_url:$('#creatorEditLinkedIn').value.trim()||null,discord_url:$('#creatorEditDiscord').value.trim()||null};
+    if(!updates.full_name)return showToast('Display name is required');
+    if(!username)return showToast('Username is required');
+    const {error}=await sb.from('profiles').update(updates).eq('id',user.id);
+    if(error)return showToast(error.message);
+    closeModal();showToast('Profile updated');history.replaceState({profileId:user.id},'',`/${encodeURIComponent(username)}`);renderPublicProfile(user.id)
+  },0)
 }
 async function connectionsPage(){
   await loadSocial();
@@ -1019,69 +1154,9 @@ async function viewApplicants(opportunityId){
 }
 
 async function profilePage(){
-  const {data}=await sb.from('profiles').select('*').eq('id',user.id).single();
-  profile=data;syncIdentity();
-  main.innerHTML=strengthCard()+`<section class="card profile">
-    <div class="profile-hero"></div>
-    <div class="profile-row">
-      <img class="avatar" src="${esc(profile.avatar_url||EMPTY)}">
-      <div>
-        <h1>${esc(profile.full_name)} ${profile.is_verified?'<span class="verified">✓</span>':''}${profile.is_founder?'<span class="badge">Founder</span>':''}</h1>
-        <div class="muted">${esc(profile.headline||profile.account_type)}</div>
-        <div class="muted">${esc(profile.location||'')}</div>
-      </div>
-      <button class="primary" id="editProfileBtn">Edit profile</button>
-    </div>
-    <p>${esc(profile.bio||'Add a bio to tell the community about yourself.')}</p>
-    <div class="opportunity-meta">
-      ${profile.niche?`<span class="chip">${esc(profile.niche)}</span>`:''}
-      ${profile.website_url?`<a class="chip" href="${esc(profile.website_url)}" target="_blank" rel="noopener">Website</a>`:''}
-      ${profile.instagram_url?`<a class="chip" href="${esc(profile.instagram_url)}" target="_blank" rel="noopener">Instagram</a>`:''}
-      ${profile.tiktok_url?`<a class="chip" href="${esc(profile.tiktok_url)}" target="_blank" rel="noopener">TikTok</a>`:''}
-      ${profile.youtube_url?`<a class="chip" href="${esc(profile.youtube_url)}" target="_blank" rel="noopener">YouTube</a>`:''}
-    </div>
-  </section>`;
-  $('#editProfileBtn').onclick=()=>modal('Edit profile',`
-    <div class="form-grid">
-      <div><label>Full name or business name</label><input class="field" id="editName" value="${esc(profile.full_name)}"></div>
-      <div><label>Account type</label><select class="field" id="editType"><option value="creator">Creator</option><option value="brand">Business</option><option value="agency">Agency</option></select></div>
-      <div class="wide"><label>Headline</label><input class="field" id="editHeadline" value="${esc(profile.headline||'')}"></div>
-      <div><label>Niche or industry</label><input class="field" id="editNiche" value="${esc(profile.niche||'')}"></div>
-      <div><label>Location</label><input class="field" id="editLocation" value="${esc(profile.location||'')}"></div>
-      <div class="wide"><label>Bio</label><textarea class="field" id="editBio">${esc(profile.bio||'')}</textarea></div>
-      <div class="wide"><label>Profile photo or logo</label><label class="upload-box" for="editAvatarFile"><strong>Upload image</strong><div class="file-note">JPG, PNG, or WebP · maximum 6 MB</div><input id="editAvatarFile" type="file" accept="image/png,image/jpeg,image/webp"></label><div id="editAvatarStatus" class="file-note">${profile.avatar_url?'Current image saved':''}</div></div>
-      <div><label>Website</label><input class="field" id="editWebsite" value="${esc(profile.website_url||'')}"></div>
-      <div><label>Instagram</label><input class="field" id="editInstagram" value="${esc(profile.instagram_url||'')}"></div>
-      <div><label>TikTok</label><input class="field" id="editTikTok" value="${esc(profile.tiktok_url||'')}"></div>
-      <div><label>YouTube</label><input class="field" id="editYouTube" value="${esc(profile.youtube_url||'')}"></div>
-    </div>
-    <button class="primary" id="saveProfileBtn" style="margin-top:14px">Save changes</button>`);
-  setTimeout(()=>{
-    $('#editType').value=profile.account_type||'creator';
-    $('#saveProfileBtn').onclick=async()=>{
-      let uploadedAvatar=profile.avatar_url||null;
-      const file=$('#editAvatarFile')?.files?.[0];
-      if(file){try{$('#editAvatarStatus').textContent='Uploading…';uploadedAvatar=await uploadProfileAsset(file,'avatar')}catch(err){return showToast(err.message)}}
-      const updates={
-        full_name:$('#editName').value.trim(),
-        account_type:$('#editType').value,
-        headline:$('#editHeadline').value.trim()||null,
-        niche:$('#editNiche').value.trim()||null,
-        location:$('#editLocation').value.trim()||null,
-        bio:$('#editBio').value.trim()||null,
-        avatar_url:uploadedAvatar,
-        website_url:$('#editWebsite').value.trim()||null,
-        instagram_url:$('#editInstagram').value.trim()||null,
-        tiktok_url:$('#editTikTok').value.trim()||null,
-        youtube_url:$('#editYouTube').value.trim()||null
-      };
-      const {error}=await sb.from('profiles').update(updates).eq('id',user.id);
-      if(error)return showToast(error.message);
-      closeModal();showToast('Profile updated');profilePage()
-    }
-  },0)
+  activeProfileId=user.id;
+  await renderPublicProfile(user.id);
 }
-
 function profileCompletion(p){
   const fields=[p.full_name,p.headline,p.bio,p.niche,p.location,p.avatar_url,p.website_url||p.instagram_url||p.tiktok_url||p.youtube_url];
   const done=fields.filter(Boolean).length;
