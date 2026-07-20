@@ -522,6 +522,90 @@ html[data-theme="dark"] .public-topbar{background:rgba(16,29,45,.92)}
   .public-auth-card{padding:17px}
 }
 
+
+/* Launch stabilization: scrolling, clicking, forms */
+html,body{min-height:100%;height:auto!important;overflow-x:hidden!important;overflow-y:auto!important}
+body{touch-action:pan-y}
+button,input,select,textarea,label,a{pointer-events:auto}
+button,select,label{touch-action:manipulation}
+.public-home,.public-home-layout,.public-content,.public-auth-side,.public-auth-card{
+  min-height:0;
+}
+.public-auth-side{
+  overflow-y:auto!important;
+  overscroll-behavior:contain;
+  -webkit-overflow-scrolling:touch;
+}
+.public-auth-card{
+  max-height:calc(100vh - 125px);
+  overflow-y:auto!important;
+  -webkit-overflow-scrolling:touch;
+}
+.public-auth-card .field,
+.public-auth-card select,
+.public-auth-card button{
+  position:relative;
+  z-index:2;
+}
+.onboarding{
+  display:block!important;
+  overflow-y:auto!important;
+  -webkit-overflow-scrolling:touch;
+  padding:24px 16px 60px!important;
+}
+.onboarding.hidden{display:none!important}
+.onboarding-shell{
+  margin:0 auto!important;
+  max-height:none!important;
+  overflow:visible!important;
+}
+.choice-grid{
+  max-height:none!important;
+  overflow:visible!important;
+}
+.choice{
+  min-height:62px;
+}
+.modal-wrap{
+  overflow-y:auto!important;
+  -webkit-overflow-scrolling:touch;
+  align-items:flex-start!important;
+  padding:24px 14px 60px!important;
+}
+.modal{
+  margin:auto;
+  max-height:none!important;
+  overflow:visible!important;
+}
+.settings-wrap,.settings-panel,.threads,.chat-body,.mention-menu{
+  -webkit-overflow-scrolling:touch;
+}
+.main,.layout,.page,.card{
+  min-height:0;
+}
+button:disabled{
+  cursor:not-allowed;
+  opacity:.58;
+}
+.auth-msg{
+  min-height:20px;
+  margin-top:10px;
+  line-height:1.35;
+}
+.button-loading{
+  pointer-events:none;
+  opacity:.72;
+}
+@media(max-width:920px){
+  .public-auth-card{max-height:none!important;overflow:visible!important}
+}
+@media(max-width:760px){
+  .public-top-actions{gap:6px}
+  .public-top-actions button{padding:8px 10px}
+  .onboarding{padding:14px 10px 48px!important}
+  .onboarding-shell{width:100%!important;padding:18px!important}
+}
+
 </style>
 </head>
 <body>
@@ -595,7 +679,7 @@ html[data-theme="dark"] .public-topbar{background:rgba(16,29,45,.92)}
   </nav>
   <div class="actions">
     <button class="icon" id="themeBtn" title="Toggle theme">☾</button>
-    <button class="icon" id="notificationsBtn" title="Connection requests">🔔</button>
+    <button class="icon" id="settingsBtn" title="Settings" aria-label="Settings">⚙</button><button class="icon" id="notificationsBtn" title="Notifications" aria-label="Notifications">🔔</button>
     <button class="icon" id="logoutBtn" title="Sign out">↪</button>
   </div>
 </header>
@@ -603,7 +687,7 @@ html[data-theme="dark"] .public-topbar{background:rgba(16,29,45,.92)}
 <div class="layout">
   <aside class="card side">
     <div class="identity"><img class="avatar" id="sideAvatar"><div><strong id="sideName">Member</strong><div class="muted" id="sideType">Creator</div></div></div>
-    <button class="active" data-page="feed">Home</button><button data-page="discover">Discover</button><button data-page="connections">Following</button><button data-page="opportunities">Opportunities</button><button data-page="messages">Messages</button><button data-page="profile">Profile</button>
+    <button class="active" data-page="feed">Home</button><button data-page="discover">Discover</button><button data-page="connections">Following</button><button data-page="opportunities">Opportunities</button><button data-page="messages">Inbox</button><button data-page="profile">My Business</button>
   </aside>
   <main class="main" id="main"></main>
   <aside class="right">
