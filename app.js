@@ -154,9 +154,8 @@ async function ensureProfile(){
 }
 function syncIdentity(){if(!profile)return;$('#sideName').textContent=profile.full_name;$('#sideType').textContent=(profile.is_founder?'Founder · ':'')+(profile.account_type||'creator');$('#sideAvatar').src=profile.avatar_url||EMPTY}
 function setPage(page){
-  if(page==='dashboard'&&typeof dashboardPage==='function')return dashboardPage();
   $$('[data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===page));
-  const pages={feed,discover,connections:connectionsPage,opportunities:opportunitiesPage,messages:messagesPage,profile:profilePage};
+  const pages={feed,discover,messages:messagesPage,opportunities:opportunitiesPage,followingFeed:followingFeedPage,bookmarks:bookmarksPage,profile:profilePage};
   const handler=pages[page];
   if(typeof handler==='function')return handler();
   main.innerHTML=`<section class="card empty"><h2>Page unavailable</h2><p class="muted">This section could not load. Return Home and try again.</p><button class="primary" data-page="feed">Return Home</button></section>`
@@ -530,6 +529,64 @@ function memberRecommendationReason(member){
   if(!reasons.length)reasons.push('Recommended for your network');
   return reasons[0];
 }
+
+async function followingFeedPage(){
+  await loadSocial();
+  main.innerHTML=`<div class="social-shell"><div class="page-heading"><h1>Following</h1><p class="muted">Recent content from accounts you follow, plus your own posts.</p></div><div class="feed" id="followingContentFeed"></div></div>`;
+  const box=$('#followingContentFeed');
+  box.innerHTML='<section class="card empty"><p class="muted">Loading followed content…</p></section>';
+  try{
+    const followedIds=follows.map(row=>row.following_id);
+    const ownerIds=[user.id,...followedIds];
+    if(ownerIds.length===1){
+      box.innerHTML=`<section class="card bookmark-empty"><h2>Your following feed is empty</h2><p class="muted">Follow creators in Discover to see their content here.</p><button class="primary" data-page="discover">Discover creators</button></section>`;
+      return
+    }
+    const {data:posts,error}=await sb.from('posts').select('id,user_id,content,media_url,media_type,link_url,created_at,profiles:posts_user_id_fkey(full_name,username,headline,account_type,avatar_url,is_verified,is_founder)').in('user_id',ownerIds).order('created_at',{ascending:false});
+    if(error)throw error;
+    if(!(posts||[]).length){
+      box.innerHTML='<section class="card bookmark-empty"><h2>No posts yet</h2><p class="muted">Posts from accounts you follow will appear here.</p></section>';
+      return
+    }
+    const ids=posts.map(post=>post.id);
+    const [{data:likes},{data:comments},{data:reposts}]=await Promise.all([
+      sb.from('post_likes').select('post_id,user_id').in('post_id',ids),
+      sb.from('post_comments').select('id,post_id,user_id,content,created_at,profiles:post_comments_user_id_fkey(full_name,avatar_url,username)').in('post_id',ids).order('created_at'),
+      sb.from('post_reposts').select('post_id,user_id,created_at').in('post_id',ids)
+    ]);
+    box.innerHTML=posts.map(post=>renderSocialPost(post,likes||[],comments||[],reposts||[])).join('');
+    bindFeedActions();bindProfileLinks()
+  }catch(error){
+    box.innerHTML=`<section class="card empty"><h2>Could not load Following</h2><p class="muted">${esc(error.message)}</p></section>`
+  }
+}
+
+async function bookmarksPage(){
+  main.innerHTML=`<div class="social-shell"><div class="page-heading"><h1>Bookmarks</h1><p class="muted">Posts you liked and wanted to find again.</p></div><div class="feed" id="bookmarkedContentFeed"></div></div>`;
+  const box=$('#bookmarkedContentFeed');
+  box.innerHTML='<section class="card empty"><p class="muted">Loading bookmarks…</p></section>';
+  try{
+    const {data:likedRows,error:likeError}=await sb.from('post_likes').select('post_id').eq('user_id',user.id);
+    if(likeError)throw likeError;
+    const ids=(likedRows||[]).map(row=>row.post_id);
+    if(!ids.length){
+      box.innerHTML='<section class="card bookmark-empty"><h2>No bookmarks yet</h2><p class="muted">Like a post and it will appear here.</p><button class="primary" data-page="feed">Browse Home</button></section>';
+      return
+    }
+    const {data:posts,error}=await sb.from('posts').select('id,user_id,content,media_url,media_type,link_url,created_at,profiles:posts_user_id_fkey(full_name,username,headline,account_type,avatar_url,is_verified,is_founder)').in('id',ids).order('created_at',{ascending:false});
+    if(error)throw error;
+    const [{data:likes},{data:comments},{data:reposts}]=await Promise.all([
+      sb.from('post_likes').select('post_id,user_id').in('post_id',ids),
+      sb.from('post_comments').select('id,post_id,user_id,content,created_at,profiles:post_comments_user_id_fkey(full_name,avatar_url,username)').in('post_id',ids).order('created_at'),
+      sb.from('post_reposts').select('post_id,user_id,created_at').in('post_id',ids)
+    ]);
+    box.innerHTML=(posts||[]).map(post=>renderSocialPost(post,likes||[],comments||[],reposts||[])).join('');
+    bindFeedActions();bindProfileLinks()
+  }catch(error){
+    box.innerHTML=`<section class="card empty"><h2>Could not load Bookmarks</h2><p class="muted">${esc(error.message)}</p></section>`
+  }
+}
+
 async function discover(){
   await loadSocial();
   main.innerHTML=`<div class="discover-traction">
@@ -568,9 +625,10 @@ async function discover(){
     box.innerHTML='<section class="card empty"><p class="muted">Calculating real traction…</p></section>';
     try{
       const data=await loadData();
+      const followedIds=new Set(follows.map(row=>row.following_id));
       const filteredPosts=data.posts.filter(p=>{
         const text=`${p.content||''} ${p.profiles?.full_name||''} ${p.profiles?.username||''} ${p.profiles?.niche||''}`.toLowerCase();
-        return text.includes(searchQuery)
+        return p.user_id!==user.id&&!followedIds.has(p.user_id)&&text.includes(searchQuery)
       });
 
       const postStats=filteredPosts.map(p=>{
@@ -1820,7 +1878,56 @@ async function renderPublicHome(){
 }
 
 
+
+function focusHomeComposer(mode='text'){
+  setPage('feed');
+  setTimeout(()=>{
+    const text=$('#postText');
+    const input=$('#postMediaInput');
+    if(mode==='text'){
+      text?.focus();
+      text?.scrollIntoView({behavior:'smooth',block:'center'});
+      return
+    }
+    if(input){
+      if(mode==='camera')input.setAttribute('capture','environment');
+      else input.removeAttribute('capture');
+      input.click()
+    }
+  },150)
+}
+function openCreateMenu(){
+  modal('Create',`<div class="create-choice-grid">
+    <button class="create-choice" data-create-mode="text"><span class="create-choice-icon">✎</span><span><strong>Write a post</strong><br><span class="muted">Share a thought, update, link, or opportunity.</span></span></button>
+    <button class="create-choice" data-create-mode="camera"><span class="create-choice-icon">◉</span><span><strong>Take a photo</strong><br><span class="muted">Open your phone or device camera.</span></span></button>
+    <button class="create-choice" data-create-mode="upload"><span class="create-choice-icon">▧</span><span><strong>Upload photo or video</strong><br><span class="muted">Choose existing media from your device.</span></span></button>
+  </div>`);
+  setTimeout(()=>$$('[data-create-mode]').forEach(button=>button.onclick=()=>{const mode=button.dataset.createMode;closeModal();focusHomeComposer(mode)}),0)
+}
+function toggleSideMoreMenu(force){
+  const menu=$('#sideMoreMenu'),button=$('#sideMoreBtn');
+  if(!menu||!button)return;
+  const open=typeof force==='boolean'?force:menu.classList.contains('hidden');
+  menu.classList.toggle('hidden',!open);
+  button.setAttribute('aria-expanded',String(open))
+}
+async function refreshSideInboxCount(){
+  if(!user)return;
+  const {count,error}=await sb.from('messages').select('*',{count:'exact',head:true}).neq('sender_id',user.id).is('read_at',null);
+  const badge=$('#sideInboxCount');
+  if(!badge||error)return;
+  badge.textContent=count>99?'99+':String(count||0);
+  badge.classList.toggle('hidden',!(count||0))
+}
+
 function installLaunchControls(){
+  $('#sideCreateBtn')?.addEventListener('click',openCreateMenu);
+  $('#sideCreatePostBtn')?.addEventListener('click',openCreateMenu);
+  $('#sideMoreBtn')?.addEventListener('click',event=>{event.stopPropagation();toggleSideMoreMenu()});
+  $('#sideSettingsBtn')?.addEventListener('click',()=>{toggleSideMoreMenu(false);openSettings()});
+  $('#sideNotificationsBtn')?.addEventListener('click',()=>{toggleSideMoreMenu(false);openNotificationCenter()});
+  $('#sideLogoutBtn')?.addEventListener('click',async()=>{await sb.auth.signOut();location.assign('/')});
+  document.addEventListener('click',event=>{if(!event.target.closest('#sideMoreMenu')&&!event.target.closest('#sideMoreBtn'))toggleSideMoreMenu(false)});
   document.addEventListener('click',event=>{
     const pageButton=event.target.closest('[data-page]');
     if(pageButton){
@@ -1938,6 +2045,7 @@ async function init(){
     await loadSocial();
     initializeSettings();
     await refreshNotificationWidget();
+    await refreshSideInboxCount();
 
     if(needsOnboarding(profile))launchOnboarding();
     else if(!(await routeFromLocation()))setPage('feed');
@@ -1947,7 +2055,7 @@ async function init(){
     return
   }
   sb.channel('messages-live').on('postgres_changes',{event:'INSERT',schema:'public',table:'messages'},payload=>{
-    if(activeConversation&&payload.new.conversation_id===activeConversation)openConversation(activeConversation);refreshNotificationWidget()
+    if(activeConversation&&payload.new.conversation_id===activeConversation)openConversation(activeConversation);refreshNotificationWidget();refreshSideInboxCount()
   }).subscribe()
 }
 sb.auth.onAuthStateChange((_e,s)=>{if(s?.user&&!user){user=s.user;init()}else if(!s?.user&&user)location.reload()});
