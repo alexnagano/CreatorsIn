@@ -1,5 +1,15 @@
 (() => {
 'use strict';
+
+function removeDuplicateTopNavigation(){
+  document.querySelectorAll('header .nav, header .actions, .top-nav, .top-navigation, .desktop-nav, .main-nav, .navbar-nav')
+    .forEach(element=>element.remove());
+
+  document.querySelectorAll('header button').forEach(button=>button.remove());
+}
+removeDuplicateTopNavigation();
+window.addEventListener('DOMContentLoaded',removeDuplicateTopNavigation);
+
 const cfg=window.CREATORSIN_CONFIG||{};
 const sb=window.supabase.createClient(cfg.SUPABASE_URL,cfg.SUPABASE_ANON_KEY);
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
