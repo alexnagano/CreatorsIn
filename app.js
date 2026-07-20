@@ -31,16 +31,76 @@ function setAuthMode(mode){authMode=mode;$$('[data-auth]').forEach(b=>b.classLis
 $$('[data-auth]').forEach(b=>b.onclick=()=>setAuthMode(b.dataset.auth));
 async function oauth(provider){const {error}=await sb.auth.signInWithOAuth({provider,options:{redirectTo:cfg.SITE_URL||location.origin}});if(error)$('#authMsg').textContent=error.message}
 $('#googleBtn').onclick=()=>oauth('google');$('#appleBtn').onclick=()=>oauth('apple');
-$('#emailBtn').onclick=async()=>{const email=$('#emailInput').value.trim(),password=$('#passwordInput').value,name=$('#nameInput').value.trim(),account_type=$('#typeInput').value;$('#authMsg').textContent='';if(password.length<8)return $('#authMsg').textContent='Password must be at least 8 characters.';let result;if(authMode==='signup'){if(!name)return $('#authMsg').textContent='Enter your full name.';result=await sb.auth.signUp({email,password,options:{data:{full_name:name,account_type},emailRedirectTo:cfg.SITE_URL||location.origin}})}else result=await sb.auth.signInWithPassword({email,password});if(result.error)return $('#authMsg').textContent=result.error.message;if(!result.data.session)$('#authMsg').textContent='Check your email to confirm your account.'};
+$('#emailBtn').onclick=async()=>{
+  const button=$('#emailBtn');
+  const email=$('#emailInput').value.trim();
+  const password=$('#passwordInput').value;
+  const name=$('#nameInput').value.trim();
+  const account_type=$('#typeInput').value;
+  $('#authMsg').textContent='';
+
+  if(!email)return $('#authMsg').textContent='Enter your email address.';
+  if(password.length<8)return $('#authMsg').textContent='Password must be at least 8 characters.';
+  if(authMode==='signup'&&!name)return $('#authMsg').textContent='Enter your full name.';
+
+  const original=button.textContent;
+  button.disabled=true;
+  button.classList.add('button-loading');
+  button.textContent=authMode==='signup'?'Creating account…':'Logging in…';
+
+  try{
+    const result=authMode==='signup'
+      ?await sb.auth.signUp({
+          email,
+          password,
+          options:{
+            data:{full_name:name,account_type},
+            emailRedirectTo:cfg.SITE_URL||location.origin
+          }
+        })
+      :await sb.auth.signInWithPassword({email,password});
+
+    if(result.error){
+      $('#authMsg').textContent=result.error.message;
+      return
+    }
+
+    if(!result.data.session){
+      $('#authMsg').textContent='Check your email to confirm your account, then return and log in.';
+      return
+    }
+
+    $('#authMsg').textContent='Success. Loading your account…';
+    await init()
+  }catch(error){
+    $('#authMsg').textContent=error?.message||'Something went wrong. Please try again.';
+  }finally{
+    button.disabled=false;
+    button.classList.remove('button-loading');
+    button.textContent=original
+  }
+};
+
+['emailInput','passwordInput','nameInput'].forEach(id=>{
+  $('#'+id)?.addEventListener('keydown',event=>{
+    if(event.key==='Enter'){
+      event.preventDefault();
+      $('#emailBtn')?.click()
+    }
+  })
+});
+
 $('#logoutBtn').onclick=async()=>{await sb.auth.signOut();location.reload()};
 
 async function ensureProfile(){const md=user.user_metadata||{};await sb.from('profiles').upsert({id:user.id,email:user.email,full_name:md.full_name||md.name||user.email.split('@')[0],account_type:md.account_type||'creator',avatar_url:md.avatar_url||md.picture||null},{onConflict:'id'});const {data}=await sb.from('profiles').select('*').eq('id',user.id).single();profile=data}
 function syncIdentity(){if(!profile)return;$('#sideName').textContent=profile.full_name;$('#sideType').textContent=(profile.is_founder?'Founder · ':'')+(profile.account_type||'creator');$('#sideAvatar').src=profile.avatar_url||EMPTY}
 function setPage(page){
-  if(page==='dashboard')return dashboardPage();
+  if(page==='dashboard'&&typeof dashboardPage==='function')return dashboardPage();
   $$('[data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===page));
   const pages={feed,discover,connections:connectionsPage,opportunities:opportunitiesPage,messages:messagesPage,profile:profilePage};
-  (pages[page]||feed)();
+  const handler=pages[page];
+  if(typeof handler==='function')return handler();
+  main.innerHTML=`<section class="card empty"><h2>Page unavailable</h2><p class="muted">This section could not load. Return Home and try again.</p><button class="primary" data-page="feed">Return Home</button></section>`
 }
 $$('[data-page]').forEach(b=>b.onclick=()=>setPage(b.dataset.page));
 
@@ -1313,6 +1373,7 @@ function launchOnboarding(){
   $('#onboarding').classList.remove('hidden');renderOnboarding();
 }
 function renderOnboarding(){
+  $('#onboarding')?.scrollTo({top:0,behavior:'smooth'});
   const step=onboardingState.step;
   $('#onboardingStepLabel').textContent=`Step ${step} of 4`;
   $('#onboardingProgress').style.width=`${step*25}%`;
@@ -1537,7 +1598,67 @@ async function renderPublicHome(){
   }).join('')
 }
 
+
+function installLaunchControls(){
+  document.addEventListener('click',event=>{
+    const pageButton=event.target.closest('[data-page]');
+    if(pageButton){
+      event.preventDefault();
+      setPage(pageButton.dataset.page);
+      return
+    }
+
+    const profileButton=event.target.closest('[data-profile-id]');
+    if(profileButton){
+      event.preventDefault();
+      openMemberProfile(profileButton.dataset.profileId);
+      return
+    }
+
+    const authButton=event.target.closest('[data-auth]');
+    if(authButton){
+      event.preventDefault();
+      setAuthMode(authButton.dataset.auth);
+      return
+    }
+  });
+
+  $('#settingsBtn')?.addEventListener('click',()=>openSettings());
+
+  $('#notificationsBtn')?.addEventListener('click',async()=>{
+    if(!user)return scrollToPublicAuth('login');
+    await loadSocial();
+    if(requests.length){
+      setPage('connections');
+      showToast(`${requests.length} pending request${requests.length===1?'':'s'}`);
+    }else{
+      showToast('You are all caught up')
+    }
+  });
+
+  document.addEventListener('click',event=>{
+    const button=event.target.closest('button');
+    if(!button||button.disabled)return;
+    if(
+      button.id||
+      button.dataset.page||
+      button.dataset.profileId||
+      button.dataset.auth||
+      [...button.attributes].some(a=>a.name.startsWith('data-'))
+    )return;
+
+    const form=button.closest('form');
+    if(form)return;
+
+    // No silent controls at launch.
+    if(!button.onclick){
+      showToast('This action is not available yet.');
+    }
+  });
+}
+
 async function init(){
+  if(!window.__creatorsInLaunchControls){window.__creatorsInLaunchControls=true;installLaunchControls()}
   const {data}=await sb.auth.getSession();
   if(!data.session){
     user=null;
