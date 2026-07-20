@@ -302,6 +302,42 @@ async function dashboardPage(){
   bindProfileLinks();
 }
 
+
+async function renderModernHomeSidebar(){
+  const peopleBox=$('#whoToFollowWidget');
+  const opportunityBox=$('#trendingOpportunitiesWidget');
+  if(!peopleBox||!opportunityBox||!user)return;
+
+  const suggestions=(members||[]).filter(m=>m.id!==user.id&&!follows.some(f=>f.following_id===m.id)).slice(0,4);
+  peopleBox.innerHTML=suggestions.length?suggestions.map(m=>`<div class="widget-person">
+    <img class="widget-avatar" src="${esc(m.avatar_url||EMPTY)}">
+    <div class="widget-copy"><button class="profile-link" data-profile-id="${m.id}"><strong>${esc(m.full_name)} ${m.is_verified?'<span class="verified">✓</span>':''}</strong></button><span class="muted">@${esc(m.username||'member')}</span></div>
+    <button class="primary widget-action" data-widget-follow="${m.id}">Follow</button>
+  </div>`).join(''):'<div class="empty-widget"><p class="muted">No new suggestions right now.</p></div>';
+
+  $$('[data-widget-follow]').forEach(button=>button.onclick=async()=>{
+    const {error}=await sb.from('follows').insert({follower_id:user.id,following_id:button.dataset.widgetFollow});
+    if(error)return showToast(error.message);
+    showToast('Following creator');
+    await loadSocial();
+    renderModernHomeSidebar()
+  });
+
+  const {data,error}=await sb.from('opportunities')
+    .select('id,title,compensation,business_id,profiles:opportunities_business_id_fkey(full_name,avatar_url,is_verified)')
+    .eq('status','open').order('created_at',{ascending:false}).limit(4);
+
+  opportunityBox.innerHTML=error
+    ?'<div class="empty-widget"><p class="muted">Opportunities could not load.</p></div>'
+    :(data||[]).length?(data||[]).map(o=>`<div class="widget-opportunity">
+      <img class="widget-logo" src="${esc(o.profiles?.avatar_url||EMPTY)}">
+      <div class="widget-copy"><strong>${esc(o.profiles?.full_name||'Brand')}</strong><span class="muted">${esc(o.title)}</span>${o.compensation?`<span class="muted">${esc(o.compensation)}</span>`:''}</div>
+      <button class="secondary widget-action" data-page="opportunities">View</button>
+    </div>`).join(''):'<div class="empty-widget"><p class="muted">No open opportunities yet.</p></div>';
+
+  bindProfileLinks()
+}
+
 async function feed(){
   await loadSocial();
   main.innerHTML=`<div class="social-shell">
@@ -352,6 +388,7 @@ async function feed(){
   };
   $$('[data-feed-filter]').forEach(b=>b.onclick=()=>{$$('[data-feed-filter]').forEach(x=>x.classList.toggle('active',x===b));currentFilter=b.dataset.feedFilter;renderTimeline(currentFilter)});
   renderTimeline(currentFilter);
+  renderModernHomeSidebar();
 }
 async function renderTimeline(filter){
   const list=$('#feedList');list.innerHTML='<section class="card empty"><p class="muted">Loading feed…</p></section>';
@@ -450,7 +487,7 @@ function bindFeedActions(){
   $$('[data-open-opportunity]').forEach(b=>b.onclick=()=>setPage('opportunities'));
 }
 
-async function loadSocial(){const [{data:m},{data:c},{data:r},{data:f}]=await Promise.all([sb.from('profiles').select('*').neq('id',user.id).order('created_at',{ascending:false}),sb.from('connections').select('*').or(`requester_id.eq.${user.id},addressee_id.eq.${user.id}`),sb.from('connections').select('*,profiles!connections_requester_id_fkey(*)').eq('addressee_id',user.id).eq('status','pending'),sb.from('follows').select('*').eq('follower_id',user.id)]);members=m||[];connections=c||[];requests=r||[];follows=f||[];renderRequestPreview()}
+async function loadSocial(){const [{data:m},{data:c},{data:r},{data:f}]=await Promise.all([sb.from('profiles').select('*').neq('id',user.id).order('created_at',{ascending:false}),sb.from('connections').select('*').or(`requester_id.eq.${user.id},addressee_id.eq.${user.id}`),sb.from('connections').select('*,profiles!connections_requester_id_fkey(*)').eq('addressee_id',user.id).eq('status','pending'),sb.from('follows').select('*').eq('follower_id',user.id)]);members=m||[];connections=c||[];requests=r||[];follows=f||[];}
 function relationship(id){const c=connections.find(x=>(x.requester_id===user.id&&x.addressee_id===id)||(x.addressee_id===user.id&&x.requester_id===id));if(!c)return null;return c}
 function recommendationScore(member){
   let score=0;
@@ -1114,7 +1151,6 @@ async function connectionsPage(){
   renderFollowing()
 }
 function renderRequests(){const el=$('#requestsList');if(!el)return;el.innerHTML=requests.length?requests.map(r=>`<div class="request row"><img class="avatar" src="${esc(r.profiles?.avatar_url||EMPTY)}"><div style="flex:1"><strong>${esc(r.profiles?.full_name||'Member')}</strong><div class="muted">${esc(r.profiles?.headline||r.profiles?.account_type||'member')}</div></div><button class="primary" data-accept="${r.id}">Accept</button><button class="secondary" data-decline="${r.id}">Decline</button></div>`).join(''):'<p class="muted">No pending requests.</p>';$$('[data-accept]').forEach(b=>b.onclick=async()=>{await sb.from('connections').update({status:'accepted',responded_at:new Date().toISOString()}).eq('id',b.dataset.accept);showToast('Connection accepted');connectionsPage()});$$('[data-decline]').forEach(b=>b.onclick=async()=>{await sb.from('connections').delete().eq('id',b.dataset.decline);connectionsPage()})}
-function renderRequestPreview(){const el=$('#requestPreview');if(!el)return;el.innerHTML=requests.length?requests.slice(0,3).map(r=>`<div class="request"><strong>${esc(r.profiles?.full_name||'Member')}</strong><div class="muted">Wants to connect</div></div>`).join(''):'No pending requests.'}
 
 
 async function startConversation(otherId){
