@@ -618,6 +618,47 @@ button:disabled{
   .choice-grid{grid-template-columns:1fr}
 }
 
+
+/* Two-widget launch header and working settings */
+.actions{display:flex;align-items:center;gap:10px}
+.notification-widget{position:relative}
+.notification-count{
+  position:absolute;
+  top:-5px;
+  right:-5px;
+  min-width:19px;
+  height:19px;
+  padding:0 5px;
+  border-radius:999px;
+  display:grid;
+  place-items:center;
+  background:#ef4444;
+  color:#fff;
+  border:2px solid var(--panel);
+  font-size:10px;
+  font-weight:900;
+}
+.notification-count.hidden{display:none}
+.notification-center{width:min(560px,calc(100vw - 28px))}
+.notification-item{
+  display:grid;
+  grid-template-columns:auto minmax(0,1fr) auto;
+  gap:12px;
+  align-items:center;
+  padding:13px 0;
+  border-bottom:1px solid var(--line);
+}
+.notification-item:last-child{border-bottom:0}
+.notification-symbol{
+  width:42px;height:42px;border-radius:12px;background:var(--soft);
+  display:grid;place-items:center;font-size:19px
+}
+.settings-panel button,.settings-panel .switch,.settings-panel .segmented button{
+  pointer-events:auto!important
+}
+.settings-panel .switch{cursor:pointer}
+.settings-saving{opacity:.65;pointer-events:none}
+
 </style>
 </head>
 <body>
@@ -690,9 +731,10 @@ button:disabled{
     <button data-page="profile">Profile</button>
   </nav>
   <div class="actions">
-    <button class="icon" id="themeBtn" title="Toggle theme">☾</button>
-    <button class="icon" id="settingsBtn" title="Settings" aria-label="Settings">⚙</button><button class="icon" id="notificationsBtn" title="Notifications" aria-label="Notifications">🔔</button>
-    <button class="icon" id="logoutBtn" title="Sign out">↪</button>
+    <button class="icon" id="settingsBtn" title="Settings" aria-label="Settings">⚙</button>
+    <button class="icon notification-widget" id="notificationsBtn" title="Notifications" aria-label="Notifications">
+      🔔<span class="notification-count hidden" id="notificationCount">0</span>
+    </button>
   </div>
 </header>
 
@@ -741,8 +783,8 @@ button:disabled{
     <section class="settings-section">
       <h3>Account</h3>
       <div class="setting-row">
-        <div class="setting-copy"><strong>Profile visibility</strong><span>All profiles are public and appear in Discover.</span></div>
-        <button class="switch" id="discoverableSwitch" disabled aria-label="Toggle profile visibility"></button>
+        <div class="setting-copy"><strong>Profile visibility</strong><span>All CreatorsIn profiles are public so creators and brands can discover one another.</span></div>
+        <span class="chip">Public</span>
       </div>
       <div class="setting-row">
         <div class="setting-copy"><strong>Email</strong><span id="settingsEmail">Signed-in email</span></div>
@@ -765,8 +807,8 @@ button:disabled{
     <section class="settings-section">
       <h3>Notifications</h3>
       <div class="setting-row">
-        <div class="setting-copy"><strong>Connection requests</strong><span>Show alerts for new connection requests.</span></div>
-        <button class="switch on" id="connectionNotifSwitch" aria-label="Toggle connection notifications"></button>
+        <div class="setting-copy"><strong>Network activity</strong><span>Show alerts for follows and other network activity.</span></div>
+        <button class="switch on" id="networkNotifSwitch" aria-label="Toggle network notifications"></button>
       </div>
       <div class="setting-row">
         <div class="setting-copy"><strong>Messages</strong><span>Show alerts for new messages.</span></div>
@@ -789,6 +831,16 @@ button:disabled{
       <button class="secondary settings-danger" id="settingsSignOutBtn">Sign out</button>
     </section>
   </aside>
+</div>
+
+
+<div class="modal-wrap hidden" id="notificationCenterWrap">
+  <div class="modal notification-center">
+    <button class="modal-close" id="closeNotificationCenter">×</button>
+    <h2>Notifications</h2>
+    <p class="muted">Messages and activity that may need your attention.</p>
+    <div id="notificationCenterBody"></div>
+  </div>
 </div>
 
 <div class="toast" id="toast"></div>

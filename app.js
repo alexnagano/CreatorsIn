@@ -17,7 +17,7 @@ function setTheme(next){
   document.body.classList.toggle('dark',theme==='dark');
   localStorage.setItem('creatorsin-theme-choice',theme);
   localStorage.setItem('cin_theme',theme);
-  if($('#themeBtn'))$('#themeBtn').textContent=theme==='dark'?'☀':'☾';
+  
 }
 if(localStorage.getItem('creatorsin-light-default-v2')!=='done'){
   localStorage.setItem('creatorsin-theme-choice','light');
@@ -25,7 +25,6 @@ if(localStorage.getItem('creatorsin-light-default-v2')!=='done'){
   localStorage.setItem('creatorsin-light-default-v2','done');
 }
 setTheme(localStorage.getItem('creatorsin-theme-choice')||localStorage.getItem('cin_theme')||'light');
-$('#themeBtn').onclick=()=>setTheme(document.documentElement.dataset.theme==='dark'?'light':'dark');
 
 function setAuthMode(mode){authMode=mode;$$('[data-auth]').forEach(b=>b.classList.toggle('active',b.dataset.auth===mode));$('#authTitle').textContent=mode==='signup'?'Create your account':'Welcome back';$('#emailBtn').textContent=mode==='signup'?'Create account':'Log in';$('#nameInput').classList.toggle('hidden',mode==='login');$('#typeInput').classList.toggle('hidden',mode==='login');$('#authMsg').textContent=''}
 $$('[data-auth]').forEach(b=>b.onclick=()=>setAuthMode(b.dataset.auth));
@@ -90,7 +89,6 @@ $('#emailBtn').onclick=async()=>{
   })
 });
 
-$('#logoutBtn').onclick=async()=>{await sb.auth.signOut();location.reload()};
 
 async function ensureProfile(){
   if(!user?.id)throw new Error('No signed-in user was found.');
@@ -1043,10 +1041,10 @@ async function connectionsPage(){
     strip.innerHTML=followedProfiles.slice(0,10).map(m=>`<div class="active-person" data-profile-id="${m.id}">
       <div class="active-avatar-wrap">
         <img class="active-avatar" src="${esc(m.avatar_url||EMPTY)}">
-        <span class="active-dot"></span>
+        ${m.show_activity_status?'<span class="active-dot"></span>':''}
       </div>
       <div class="active-name">${esc(m.full_name)}</div>
-      <div class="active-status">Active recently</div>
+      <div class="active-status">${m.show_activity_status?'Active recently':'Creator profile'}</div>
     </div>`).join('');
     bindProfileLinks()
   };
@@ -1117,9 +1115,22 @@ async function connectionsPage(){
 }
 function renderRequests(){const el=$('#requestsList');if(!el)return;el.innerHTML=requests.length?requests.map(r=>`<div class="request row"><img class="avatar" src="${esc(r.profiles?.avatar_url||EMPTY)}"><div style="flex:1"><strong>${esc(r.profiles?.full_name||'Member')}</strong><div class="muted">${esc(r.profiles?.headline||r.profiles?.account_type||'member')}</div></div><button class="primary" data-accept="${r.id}">Accept</button><button class="secondary" data-decline="${r.id}">Decline</button></div>`).join(''):'<p class="muted">No pending requests.</p>';$$('[data-accept]').forEach(b=>b.onclick=async()=>{await sb.from('connections').update({status:'accepted',responded_at:new Date().toISOString()}).eq('id',b.dataset.accept);showToast('Connection accepted');connectionsPage()});$$('[data-decline]').forEach(b=>b.onclick=async()=>{await sb.from('connections').delete().eq('id',b.dataset.decline);connectionsPage()})}
 function renderRequestPreview(){const el=$('#requestPreview');if(!el)return;el.innerHTML=requests.length?requests.slice(0,3).map(r=>`<div class="request"><strong>${esc(r.profiles?.full_name||'Member')}</strong><div class="muted">Wants to connect</div></div>`).join(''):'No pending requests.'}
-$('#notificationsBtn').onclick=()=>setPage('connections');
+
 
 async function startConversation(otherId){
+  if(!otherId||otherId===user.id)return;
+
+  const {data:recipient,error:recipientError}=await sb
+    .from('profiles')
+    .select('allow_direct_messages,full_name')
+    .eq('id',otherId)
+    .single();
+
+  if(recipientError)return showToast(recipientError.message);
+  if(recipient?.allow_direct_messages===false){
+    return showToast(`${recipient.full_name||'This member'} is not accepting new direct messages.`)
+  }
+
   const {data,error}=await sb.rpc('get_or_create_conversation',{other_user:otherId});
   if(error)return showToast(error.message);
   activeConversation=data;
@@ -1501,69 +1512,179 @@ function applyThemeChoice(choice){
   document.documentElement.dataset.theme=resolved;
   document.body.classList.toggle('dark',resolved==='dark');
   localStorage.setItem('cin_theme',resolved);
-  if($('#themeBtn'))$('#themeBtn').textContent=resolved==='dark'?'☀':'☾';
+  
   $$('[data-theme-choice]').forEach(b=>b.classList.toggle('active',b.dataset.themeChoice===choice));
+}
+function setSwitchState(button,value){
+  if(!button)return;
+  button.classList.toggle('on',Boolean(value));
+  button.setAttribute('aria-pressed',String(Boolean(value)))
 }
 function openSettings(){
   $('#settingsWrap').classList.remove('hidden');
   $('#settingsEmail').textContent=user?.email||profile?.email||'';
-  const discoverable=profile?.is_discoverable!==false;
-  $('#discoverableSwitch').classList.toggle('on',discoverable);
   const choice=localStorage.getItem('creatorsin-theme-choice')||'light';
   applyThemeChoice(choice);
+
+  setSwitchState($('#dmSwitch'),profile?.allow_direct_messages!==false);
+  setSwitchState($('#activitySwitch'),profile?.show_activity_status===true);
+  setSwitchState($('#networkNotifSwitch'),profile?.network_notifications!==false);
+  setSwitchState($('#messageNotifSwitch'),profile?.message_notifications!==false);
 }
 function closeSettings(){
   $('#settingsWrap').classList.add('hidden');
 }
-function toggleLocalSetting(button,key,defaultValue=false){
-  const current=localStorage.getItem(key);
-  const value=current===null?defaultValue:current==='true';
-  const next=!value;
-  localStorage.setItem(key,String(next));
-  button.classList.toggle('on',next);
+async function saveProfilePreference(column,value,button,successMessage){
+  if(button)button.classList.add('settings-saving');
+  const {error}=await sb.from('profiles').update({[column]:value}).eq('id',user.id);
+  if(button)button.classList.remove('settings-saving');
+  if(error){
+    setSwitchState(button,!value);
+    return showToast(error.message)
+  }
+  profile[column]=value;
+  setSwitchState(button,value);
+  showToast(successMessage)
 }
 function initializeSettings(){
   const choice=localStorage.getItem('creatorsin-theme-choice')||'light';
   applyThemeChoice(choice);
 
-  $('#settingsBtn')?.addEventListener('click',openSettings);
   $('#closeSettingsBtn')?.addEventListener('click',closeSettings);
-  $('#settingsWrap')?.addEventListener('click',e=>{if(e.target.id==='settingsWrap')closeSettings()});
-  $$('[data-theme-choice]').forEach(b=>b.onclick=()=>applyThemeChoice(b.dataset.themeChoice));
-
-  $('#discoverableSwitch')?.addEventListener('click',async()=>{
-    const next=!$('#discoverableSwitch').classList.contains('on');
-    const {error}=await sb.from('profiles').update({is_discoverable:next}).eq('id',user.id);
-    if(error)return showToast(error.message);
-    profile.is_discoverable=next;
-    $('#discoverableSwitch').classList.toggle('on',next);
-    showToast(next?'Profile is visible in Discover':'Profile hidden from Discover');
+  $('#settingsWrap')?.addEventListener('click',event=>{
+    if(event.target.id==='settingsWrap')closeSettings()
+  });
+  document.addEventListener('keydown',event=>{
+    if(event.key==='Escape'){
+      closeSettings();
+      closeNotificationCenter()
+    }
+  });
+  $$('[data-theme-choice]').forEach(button=>{
+    button.onclick=()=>applyThemeChoice(button.dataset.themeChoice)
   });
 
-  const localSwitches=[
-    ['dmSwitch','creatorsin-allow-dms',true],
-    ['activitySwitch','creatorsin-show-activity',false],
-    ['connectionNotifSwitch','creatorsin-connection-notifs',true],
-    ['messageNotifSwitch','creatorsin-message-notifs',true]
+  const dbSwitches=[
+    ['dmSwitch','allow_direct_messages','Direct message preference saved'],
+    ['activitySwitch','show_activity_status','Activity status preference saved'],
+    ['networkNotifSwitch','network_notifications','Network notification preference saved'],
+    ['messageNotifSwitch','message_notifications','Message notification preference saved']
   ];
-  localSwitches.forEach(([id,key,def])=>{
-    const btn=$('#'+id);
-    if(!btn)return;
-    const stored=localStorage.getItem(key);
-    const value=stored===null?def:stored==='true';
-    btn.classList.toggle('on',value);
-    btn.onclick=()=>toggleLocalSetting(btn,key,def);
+  dbSwitches.forEach(([id,column,message])=>{
+    const button=$('#'+id);
+    if(!button)return;
+    button.onclick=()=>{
+      const next=!button.classList.contains('on');
+      setSwitchState(button,next);
+      saveProfilePreference(column,next,button,message)
+    }
   });
 
-  $('#openProfileSettingsBtn')?.addEventListener('click',()=>{closeSettings();setPage('profile')});
-  $$('[data-settings-legal]').forEach(b=>b.onclick=()=>legalCopy(b.dataset.settingsLegal));
-  $('#settingsSignOutBtn')?.addEventListener('click',async()=>{await sb.auth.signOut();location.reload()});
+  $('#openProfileSettingsBtn')?.addEventListener('click',()=>{
+    closeSettings();
+    setPage('profile')
+  });
+  $$('[data-settings-legal]').forEach(button=>{
+    button.onclick=()=>legalCopy(button.dataset.settingsLegal)
+  });
+  $('#settingsSignOutBtn')?.addEventListener('click',async()=>{
+    const button=$('#settingsSignOutBtn');
+    button.disabled=true;
+    button.textContent='Signing out…';
+    await sb.auth.signOut();
+    location.assign('/')
+  });
 
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change',()=>{
-    if((localStorage.getItem('creatorsin-theme-choice')||'light')==='system')applyThemeChoice('system')
+    if((localStorage.getItem('creatorsin-theme-choice')||'light')==='system'){
+      applyThemeChoice('system')
+    }
   });
 }
+function closeNotificationCenter(){
+  $('#notificationCenterWrap')?.classList.add('hidden')
+}
+async function getNotificationSummary(){
+  if(!user)return {items:[],count:0};
 
+  const tasks=[];
+
+  if(profile?.message_notifications!==false){
+    tasks.push(
+      sb.from('messages')
+        .select('id,sender_id,conversation_id,content,created_at')
+        .neq('sender_id',user.id)
+        .is('read_at',null)
+        .order('created_at',{ascending:false})
+        .limit(10)
+        .then(({data,error})=>error?[]:(data||[]).map(row=>({
+          type:'message',
+          icon:'💬',
+          title:'Unread message',
+          copy:row.content||'You received a new message.',
+          created_at:row.created_at,
+          page:'messages'
+        })))
+    )
+  }
+
+  if(profile?.network_notifications!==false){
+    tasks.push(
+      sb.from('follows')
+        .select('follower_id,created_at,profiles:follows_follower_id_fkey(full_name)')
+        .eq('following_id',user.id)
+        .order('created_at',{ascending:false})
+        .limit(10)
+        .then(({data,error})=>error?[]:(data||[]).map(row=>({
+          type:'follow',
+          icon:'👤',
+          title:`${row.profiles?.full_name||'Someone'} followed you`,
+          copy:'View your network and discover their profile.',
+          created_at:row.created_at,
+          page:'connections'
+        })))
+    )
+  }
+
+  const groups=await Promise.all(tasks);
+  const items=groups.flat()
+    .sort((a,b)=>new Date(b.created_at)-new Date(a.created_at))
+    .slice(0,15);
+
+  return {items,count:items.length}
+}
+async function refreshNotificationWidget(){
+  if(!user)return;
+  const {count}=await getNotificationSummary();
+  const badge=$('#notificationCount');
+  if(!badge)return;
+  badge.textContent=count>99?'99+':String(count);
+  badge.classList.toggle('hidden',count===0)
+}
+async function openNotificationCenter(){
+  if(!user)return scrollToPublicAuth('login');
+  const wrap=$('#notificationCenterWrap');
+  const body=$('#notificationCenterBody');
+  wrap.classList.remove('hidden');
+  body.innerHTML='<p class="muted">Loading notifications…</p>';
+
+  const {items}=await getNotificationSummary();
+
+  body.innerHTML=items.length
+    ?items.map(item=>`<div class="notification-item">
+      <div class="notification-symbol">${item.icon}</div>
+      <div><strong>${esc(item.title)}</strong><div class="muted">${esc(item.copy)} · ${formatRelativeTime(item.created_at)}</div></div>
+      <button class="secondary" data-notification-page="${item.page}">Open</button>
+    </div>`).join('')
+    :'<div class="empty"><h3>You are all caught up</h3><p class="muted">New messages and network activity will appear here.</p></div>';
+
+  $$('[data-notification-page]').forEach(button=>{
+    button.onclick=()=>{
+      closeNotificationCenter();
+      setPage(button.dataset.notificationPage)
+    }
+  })
+}
 async function openMemberProfile(memberId,{push=true}={}){
   if(!memberId)return;
   activeProfileId=memberId;
@@ -1687,18 +1808,11 @@ function installLaunchControls(){
     }
   });
 
-  $('#settingsBtn')?.addEventListener('click',()=>openSettings());
+  $('#settingsBtn')?.addEventListener('click',openSettings);
 
-  $('#notificationsBtn')?.addEventListener('click',async()=>{
-    if(!user)return scrollToPublicAuth('login');
-    await loadSocial();
-    if(requests.length){
-      setPage('connections');
-      showToast(`${requests.length} pending request${requests.length===1?'':'s'}`);
-    }else{
-      showToast('You are all caught up')
-    }
-  });
+  $('#notificationsBtn')?.addEventListener('click',openNotificationCenter);
+$('#closeNotificationCenter')?.addEventListener('click',closeNotificationCenter);
+$('#notificationCenterWrap')?.addEventListener('click',event=>{if(event.target.id==='notificationCenterWrap')closeNotificationCenter()});
 
   document.addEventListener('click',event=>{
     const button=event.target.closest('button');
@@ -1787,6 +1901,7 @@ async function init(){
     await runLaunchPreflight();
     await loadSocial();
     initializeSettings();
+    await refreshNotificationWidget();
 
     if(needsOnboarding(profile))launchOnboarding();
     else if(!(await routeFromLocation()))setPage('feed');
@@ -1796,7 +1911,7 @@ async function init(){
     return
   }
   sb.channel('messages-live').on('postgres_changes',{event:'INSERT',schema:'public',table:'messages'},payload=>{
-    if(activeConversation&&payload.new.conversation_id===activeConversation)openConversation(activeConversation)
+    if(activeConversation&&payload.new.conversation_id===activeConversation)openConversation(activeConversation);refreshNotificationWidget()
   }).subscribe()
 }
 sb.auth.onAuthStateChange((_e,s)=>{if(s?.user&&!user){user=s.user;init()}else if(!s?.user&&user)location.reload()});
