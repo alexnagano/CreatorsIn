@@ -606,6 +606,18 @@ button:disabled{
   .onboarding-shell{width:100%!important;padding:18px!important}
 }
 
+
+/* Launch candidate profile/auth refinements */
+.choice-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.choice{display:block;width:100%;text-align:left;cursor:pointer}
+.choice strong{font-size:17px}
+.choice.active{outline:2px solid var(--blue);outline-offset:2px}
+#typeInput{min-height:48px}
+.profile-link{cursor:pointer}
+@media(max-width:700px){
+  .choice-grid{grid-template-columns:1fr}
+}
+
 </style>
 </head>
 <body>
@@ -675,7 +687,7 @@ button:disabled{
     <button data-page="connections">Following</button>
     <button data-page="opportunities">Opportunities</button>
     <button data-page="messages">Inbox</button>
-    <button data-page="profile">My Business</button>
+    <button data-page="profile">Profile</button>
   </nav>
   <div class="actions">
     <button class="icon" id="themeBtn" title="Toggle theme">☾</button>
@@ -687,7 +699,7 @@ button:disabled{
 <div class="layout">
   <aside class="card side">
     <div class="identity"><img class="avatar" id="sideAvatar"><div><strong id="sideName">Member</strong><div class="muted" id="sideType">Creator</div></div></div>
-    <button class="active" data-page="feed">Home</button><button data-page="discover">Discover</button><button data-page="connections">Following</button><button data-page="opportunities">Opportunities</button><button data-page="messages">Inbox</button><button data-page="profile">My Business</button>
+    <button class="active" data-page="feed">Home</button><button data-page="discover">Discover</button><button data-page="connections">Following</button><button data-page="opportunities">Opportunities</button><button data-page="messages">Inbox</button><button data-page="profile">Profile</button>
   </aside>
   <main class="main" id="main"></main>
   <aside class="right">

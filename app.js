@@ -92,7 +92,68 @@ $('#emailBtn').onclick=async()=>{
 
 $('#logoutBtn').onclick=async()=>{await sb.auth.signOut();location.reload()};
 
-async function ensureProfile(){const md=user.user_metadata||{};await sb.from('profiles').upsert({id:user.id,email:user.email,full_name:md.full_name||md.name||user.email.split('@')[0],account_type:md.account_type||'creator',avatar_url:md.avatar_url||md.picture||null},{onConflict:'id'});const {data}=await sb.from('profiles').select('*').eq('id',user.id).single();profile=data}
+async function ensureProfile(){
+  if(!user?.id)throw new Error('No signed-in user was found.');
+
+  const md=user.user_metadata||{};
+  const fallbackName=(md.full_name||md.name||user.email?.split('@')[0]||'Creator').trim();
+  const fallbackType=['creator','brand','agency'].includes(md.account_type)?md.account_type:'creator';
+
+  let {data:existing,error:readError}=await sb
+    .from('profiles')
+    .select('*')
+    .eq('id',user.id)
+    .maybeSingle();
+
+  if(readError)throw new Error(`Profile could not be loaded: ${readError.message}`);
+
+  if(!existing){
+    const base=(fallbackName||'creator')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g,'.')
+      .replace(/^\.+|\.+$/g,'')
+      .slice(0,28)||'creator';
+
+    const candidate=`${base}.${user.id.slice(0,4)}`;
+
+    const payload={
+      id:user.id,
+      email:user.email,
+      full_name:fallbackName,
+      username:candidate,
+      account_type:fallbackType,
+      avatar_url:md.avatar_url||md.picture||null,
+      is_discoverable:true
+    };
+
+    const {error:createError}=await sb.from('profiles').insert(payload);
+
+    if(createError){
+      // A concurrent auth refresh may have created the row already.
+      const {data:retry,error:retryError}=await sb
+        .from('profiles')
+        .select('*')
+        .eq('id',user.id)
+        .maybeSingle();
+
+      if(retryError||!retry){
+        throw new Error(`Profile could not be created: ${createError.message}`);
+      }
+      existing=retry;
+    }else{
+      const {data:created,error:createdError}=await sb
+        .from('profiles')
+        .select('*')
+        .eq('id',user.id)
+        .single();
+
+      if(createdError)throw new Error(`Profile was created but could not be opened: ${createdError.message}`);
+      existing=created;
+    }
+  }
+
+  profile=existing;
+}
 function syncIdentity(){if(!profile)return;$('#sideName').textContent=profile.full_name;$('#sideType').textContent=(profile.is_founder?'Founder · ':'')+(profile.account_type||'creator');$('#sideAvatar').src=profile.avatar_url||EMPTY}
 function setPage(page){
   if(page==='dashboard'&&typeof dashboardPage==='function')return dashboardPage();
@@ -231,14 +292,14 @@ async function dashboardPage(){
   const hour=new Date().getHours(),greeting=hour<12?'Good morning':hour<18?'Good afternoon':'Good evening';
   const suggestions=members.filter(m=>!follows.some(f=>f.following_id===m.id)).slice(0,4);
   const tasks=[
-    !profile.avatar_url&&{icon:'📷',title:'Add a profile picture',copy:'Help brands recognize and trust your profile.',action:'My Business',page:'profile'},
+    !profile.avatar_url&&{icon:'📷',title:'Add a profile picture',copy:'Help brands recognize and trust your profile.',action:'Profile',page:'profile'},
     strength<90&&{icon:'✨',title:'Complete your creator portfolio',copy:`Your profile is ${strength}% complete.`,action:'Improve profile',page:'profile'},
     !(pinnedRows||[]).length&&{icon:'📌',title:'Pin your best content',copy:'Show brands your strongest posts first.',action:'View posts',page:'profile'},
     !(postCount||0)&&{icon:'✍️',title:'Publish your first post',copy:'Share your work, ideas, or a recent creator win.',action:'Create post',page:'feed'},
     (unreadRows||[]).length>0&&{icon:'💬',title:'Reply to your inbox',copy:`You have ${(unreadRows||[]).length} unread message${(unreadRows||[]).length===1?'':'s'}.`,action:'Open inbox',page:'messages'},
     {icon:'💼',title:'Review new opportunities',copy:'Look for work that matches your niche.',action:'Open marketplace',page:'opportunities'}
   ].filter(Boolean).slice(0,5);
-  main.innerHTML=`<div class="dashboard-page"><section class="card dashboard-hero"><h1>${greeting}, ${esc((profile.full_name||'Creator').split(' ')[0])}!</h1><p class="muted">Here is what is happening with your creator business today.</p><div class="dashboard-actions"><button class="primary" data-dashboard-page="profile">Build My Business</button><button class="secondary" data-dashboard-page="opportunities">Find Opportunities</button><button class="secondary" data-dashboard-page="messages">Open Inbox</button></div></section><div class="dashboard-grid"><section class="card dashboard-stat"><strong>${followerCount||0}</strong><span>Followers</span></section><section class="card dashboard-stat"><strong>${followingCount||0}</strong><span>Following</span></section><section class="card dashboard-stat"><strong>${postCount||0}</strong><span>Posts</span></section><section class="card dashboard-stat"><strong>${applicationCount||0}</strong><span>Applications</span></section></div><div class="dashboard-layout"><div style="display:grid;gap:16px"><section class="card dashboard-card"><div class="profile-section-head"><div><h2>Your next steps</h2><p class="muted">Actions that strengthen your creator business.</p></div></div>${tasks.map(t=>`<div class="dashboard-task"><div class="dashboard-task-icon">${t.icon}</div><div><strong>${esc(t.title)}</strong><div class="muted">${esc(t.copy)}</div></div><button class="secondary" data-dashboard-page="${t.page}">${esc(t.action)}</button></div>`).join('')}</section><section class="card dashboard-card"><div class="profile-section-head"><div><h2>Opportunities for you</h2><p class="muted">Newest real opportunities on CreatorsIn.</p></div><button class="secondary" data-dashboard-page="opportunities">View all</button></div>${(recentOpportunities||[]).length?(recentOpportunities||[]).map(o=>`<div class="dashboard-opportunity"><strong>${esc(o.title)}</strong><div class="muted">${esc(o.profiles?.full_name||'Business')} · ${formatRelativeTime(o.created_at)}</div><p>${esc(o.description||'')}</p></div>`).join(''):`<div class="profile-empty"><p class="muted">No open opportunities yet.</p></div>`}</section></div><div style="display:grid;gap:16px;align-content:start"><section class="card dashboard-card"><div class="profile-section-head"><div><h2>Profile strength</h2><p class="muted">Make your creator business easier to hire.</p></div><strong>${strength}%</strong></div><div class="dashboard-progress"><i style="width:${strength}%"></i></div><button class="primary" data-dashboard-page="profile" style="width:100%;margin-top:15px">Improve My Business</button></section><section class="card dashboard-card"><div class="profile-section-head"><div><h2>People to know</h2><p class="muted">Profiles worth exploring.</p></div></div>${suggestions.length?suggestions.map(m=>`<div class="dashboard-person"><img src="${esc(m.avatar_url||EMPTY)}"><div style="min-width:0;flex:1"><button class="profile-link" data-profile-id="${m.id}"><strong>${esc(m.full_name)}</strong></button><div class="muted">@${esc(m.username||'member')} · ${esc(m.headline||m.account_type||'member')}</div></div></div>`).join(''):`<p class="muted">No suggestions yet.</p>`}<button class="secondary" data-dashboard-page="discover" style="width:100%;margin-top:12px">Open Discover</button></section><section class="card dashboard-card"><h2 style="margin-top:0">Inbox</h2><p class="muted">${(unreadRows||[]).length?`You have ${(unreadRows||[]).length} unread message${(unreadRows||[]).length===1?'':'s'}.`:'You are all caught up.'}</p><button class="secondary" data-dashboard-page="messages" style="width:100%">Open Inbox</button></section></div></div></div>`;
+  main.innerHTML=`<div class="dashboard-page"><section class="card dashboard-hero"><h1>${greeting}, ${esc((profile.full_name||'Creator').split(' ')[0])}!</h1><p class="muted">Here is what is happening with your creator profile today.</p><div class="dashboard-actions"><button class="primary" data-dashboard-page="profile">Build Profile</button><button class="secondary" data-dashboard-page="opportunities">Find Opportunities</button><button class="secondary" data-dashboard-page="messages">Open Inbox</button></div></section><div class="dashboard-grid"><section class="card dashboard-stat"><strong>${followerCount||0}</strong><span>Followers</span></section><section class="card dashboard-stat"><strong>${followingCount||0}</strong><span>Following</span></section><section class="card dashboard-stat"><strong>${postCount||0}</strong><span>Posts</span></section><section class="card dashboard-stat"><strong>${applicationCount||0}</strong><span>Applications</span></section></div><div class="dashboard-layout"><div style="display:grid;gap:16px"><section class="card dashboard-card"><div class="profile-section-head"><div><h2>Your next steps</h2><p class="muted">Actions that strengthen your creator profile.</p></div></div>${tasks.map(t=>`<div class="dashboard-task"><div class="dashboard-task-icon">${t.icon}</div><div><strong>${esc(t.title)}</strong><div class="muted">${esc(t.copy)}</div></div><button class="secondary" data-dashboard-page="${t.page}">${esc(t.action)}</button></div>`).join('')}</section><section class="card dashboard-card"><div class="profile-section-head"><div><h2>Opportunities for you</h2><p class="muted">Newest real opportunities on CreatorsIn.</p></div><button class="secondary" data-dashboard-page="opportunities">View all</button></div>${(recentOpportunities||[]).length?(recentOpportunities||[]).map(o=>`<div class="dashboard-opportunity"><strong>${esc(o.title)}</strong><div class="muted">${esc(o.profiles?.full_name||'Business')} · ${formatRelativeTime(o.created_at)}</div><p>${esc(o.description||'')}</p></div>`).join(''):`<div class="profile-empty"><p class="muted">No open opportunities yet.</p></div>`}</section></div><div style="display:grid;gap:16px;align-content:start"><section class="card dashboard-card"><div class="profile-section-head"><div><h2>Profile strength</h2><p class="muted">Make your creator profile easier to hire.</p></div><strong>${strength}%</strong></div><div class="dashboard-progress"><i style="width:${strength}%"></i></div><button class="primary" data-dashboard-page="profile" style="width:100%;margin-top:15px">Improve Profile</button></section><section class="card dashboard-card"><div class="profile-section-head"><div><h2>People to know</h2><p class="muted">Profiles worth exploring.</p></div></div>${suggestions.length?suggestions.map(m=>`<div class="dashboard-person"><img src="${esc(m.avatar_url||EMPTY)}"><div style="min-width:0;flex:1"><button class="profile-link" data-profile-id="${m.id}"><strong>${esc(m.full_name)}</strong></button><div class="muted">@${esc(m.username||'member')} · ${esc(m.headline||m.account_type||'member')}</div></div></div>`).join(''):`<p class="muted">No suggestions yet.</p>`}<button class="secondary" data-dashboard-page="discover" style="width:100%;margin-top:12px">Open Discover</button></section><section class="card dashboard-card"><h2 style="margin-top:0">Inbox</h2><p class="muted">${(unreadRows||[]).length?`You have ${(unreadRows||[]).length} unread message${(unreadRows||[]).length===1?'':'s'}.`:'You are all caught up.'}</p><button class="secondary" data-dashboard-page="messages" style="width:100%">Open Inbox</button></section></div></div></div>`;
   $$('[data-dashboard-page]').forEach(b=>b.onclick=()=>setPage(b.dataset.dashboardPage));
   bindProfileLinks();
 }
@@ -910,7 +971,10 @@ function openCreatorProfileEditor(member){
     if(!updates.full_name)return showToast('Display name is required');
     if(!username)return showToast('Username is required');
     const {error}=await sb.from('profiles').update(updates).eq('id',user.id);
-    if(error)return showToast(error.message);
+    if(error){
+      if(/duplicate|unique/i.test(error.message||''))return showToast('That username is already taken. Choose another one.');
+      return showToast(error.message)
+    }
     closeModal();showToast('Profile updated');history.replaceState({profileId:user.id},'',`/${encodeURIComponent(username)}`);renderPublicProfile(user.id)
   },0)
 }
@@ -1657,6 +1721,53 @@ function installLaunchControls(){
   });
 }
 
+
+function showStartupError(error){
+  gate.classList.add('hidden');
+  document.querySelector('header')?.classList.remove('hidden');
+  document.querySelector('.layout')?.classList.remove('hidden');
+
+  main.innerHTML=`<section class="card empty" style="max-width:760px;margin:30px auto">
+    <h1>We could not finish loading your account</h1>
+    <p class="muted">${esc(error?.message||'An unexpected startup error occurred.')}</p>
+    <div style="display:flex;gap:9px;justify-content:center;flex-wrap:wrap;margin-top:16px">
+      <button class="primary" id="retryStartupBtn">Try again</button>
+      <button class="secondary" id="startupLogoutBtn">Log out</button>
+    </div>
+  </section>`;
+
+  $('#retryStartupBtn').onclick=()=>location.reload();
+  $('#startupLogoutBtn').onclick=async()=>{
+    await sb.auth.signOut();
+    location.assign('/')
+  };
+}
+
+async function runLaunchPreflight(){
+  const requiredTables=[
+    'profiles','posts','post_likes','post_comments','post_reposts',
+    'follows','opportunities','applications','conversations',
+    'conversation_members','messages','creator_services',
+    'profile_portfolio_entries','profile_pinned_posts'
+  ];
+
+  const missing=[];
+
+  for(const table of requiredTables){
+    const {error}=await sb.from(table).select('*',{head:true,count:'exact'}).limit(1);
+    if(error && /does not exist|schema cache|relation/i.test(error.message||'')){
+      missing.push(table)
+    }
+  }
+
+  if(missing.length){
+    console.error('CreatorsIn missing tables:',missing);
+    showToast(`Setup incomplete: ${missing.length} database table${missing.length===1?' is':'s are'} missing.`);
+  }
+
+  return missing;
+}
+
 async function init(){
   if(!window.__creatorsInLaunchControls){window.__creatorsInLaunchControls=true;installLaunchControls()}
   const {data}=await sb.auth.getSession();
@@ -1669,12 +1780,21 @@ async function init(){
   gate.classList.add('hidden');
   document.querySelector('header')?.classList.remove('hidden');
   document.querySelector('.layout')?.classList.remove('hidden');
-  await ensureProfile();
-  syncIdentity();
-  await loadSocial();
-  initializeSettings();
-  if(needsOnboarding(profile))launchOnboarding();
-  else if(!(await routeFromLocation()))setPage('feed');
+
+  try{
+    await ensureProfile();
+    syncIdentity();
+    await runLaunchPreflight();
+    await loadSocial();
+    initializeSettings();
+
+    if(needsOnboarding(profile))launchOnboarding();
+    else if(!(await routeFromLocation()))setPage('feed');
+  }catch(error){
+    console.error(error);
+    showStartupError(error);
+    return
+  }
   sb.channel('messages-live').on('postgres_changes',{event:'INSERT',schema:'public',table:'messages'},payload=>{
     if(activeConversation&&payload.new.conversation_id===activeConversation)openConversation(activeConversation)
   }).subscribe()
