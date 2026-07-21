@@ -744,31 +744,35 @@ async function fetchProfileCounts(memberId){
   ]);
   return {followers:followers||0,following:following||0,posts:postsCount||0,connections:connectionsCount||0}
 }
+
+async function fetchCreatorTotalLikes(memberId){
+  try{
+    const {data,error}=await sb.rpc('get_creator_total_likes',{creator_id:memberId});
+    if(error){
+      console.warn('Total likes unavailable:',error.message);
+      return 0
+    }
+    return Number(data||0)
+  }catch(error){
+    console.warn('Total likes unavailable:',error);
+    return 0
+  }
+}
+
 async function renderPublicProfile(memberId){
   await loadSocial();
-  const [{data:member,error},{data:entries},{data:pins},{data:services},{data:creatorPosts}]=await Promise.all([
+  const [{data:member,error},{data:entries},{data:pins},{data:services}]=await Promise.all([
     sb.from('profiles').select('*').eq('id',memberId).single(),
     sb.from('profile_portfolio_entries').select('*').eq('profile_id',memberId).order('sort_order').order('start_date',{ascending:false}),
     sb.from('profile_pinned_posts').select('post_id,position').eq('profile_id',memberId).order('position'),
-    sb.from('creator_services').select('*').eq('profile_id',memberId).order('sort_order').order('created_at'),
-    sb.from('posts').select('id').eq('user_id',memberId)
+    sb.from('creator_services').select('*').eq('profile_id',memberId).order('sort_order').order('created_at')
   ]);
   if(error){main.innerHTML=`<section class="card empty"><h2>Profile not found</h2><p class="muted">${esc(error.message)}</p></section>`;return}
   if(memberId===user.id){profile=member;syncIdentity()}
-  const counts=await fetchProfileCounts(memberId);
-
-  const creatorPostIds=(creatorPosts||[]).map(post=>post.id);
-  let creatorTotalLikes=0;
-
-  if(creatorPostIds.length){
-    const {count:likeCount,error:likeCountError}=await sb
-      .from('post_likes')
-      .select('*',{count:'exact',head:true})
-      .in('post_id',creatorPostIds);
-
-    if(!likeCountError)creatorTotalLikes=likeCount||0;
-  }
-
+  const [counts,creatorTotalLikes]=await Promise.all([
+    fetchProfileCounts(memberId),
+    fetchCreatorTotalLikes(memberId)
+  ]);
   const isSelf=memberId===user.id;
   const rel=relationship(memberId);
   const isFollowing=follows.some(f=>f.following_id===memberId);
