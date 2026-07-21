@@ -1044,16 +1044,34 @@ function openAvailabilityEditor(member){
   },0)
 }
 
+function normalizeProfileUrl(value){
+  const clean=(value||'').trim();
+  if(!clean)return null;
+  if(/^https?:\/\//i.test(clean))return clean;
+  return `https://${clean}`
+}
+
 function openCreatorProfileEditor(member){
-  modal('Edit creator profile',`<div class="profile-edit-grid">
+  modal('Edit profile',`<div class="profile-edit-grid">
     <div><label>Display name</label><input class="field" id="creatorEditName" value="${esc(member.full_name||'')}"></div>
     <div><label>Username</label><input class="field" id="creatorEditUsername" value="${esc(member.username||'')}" placeholder="your.username"></div>
     <div class="wide"><label>Headline</label><input class="field" id="creatorEditHeadline" value="${esc(member.headline||'')}" placeholder="Gaming creator · UGC specialist · Streamer"></div>
     <div><label>Niche or industry</label><input class="field" id="creatorEditNiche" value="${esc(member.niche||'')}"></div>
     <div><label>Location</label><input class="field" id="creatorEditLocation" value="${esc(member.location||'')}"></div>
     <div class="wide"><label>Bio</label><textarea class="field" id="creatorEditBio">${esc(member.bio||'')}</textarea></div>
-    <div><label>Profile picture</label><input class="field" id="creatorEditAvatar" type="file" accept="image/*"><img class="asset-preview" src="${esc(member.avatar_url||EMPTY)}"></div>
-    <div><label>Banner image</label><input class="field" id="creatorEditBanner" type="file" accept="image/*">${member.banner_url?`<img class="banner-preview" src="${esc(member.banner_url)}">`:''}</div>
+
+    <div>
+      <label>Profile picture</label>
+      <input class="field" id="creatorEditAvatar" type="file" accept="image/png,image/jpeg,image/webp">
+      <img class="asset-preview" id="creatorAvatarPreview" src="${esc(member.avatar_url||EMPTY)}">
+    </div>
+
+    <div>
+      <label>Banner image</label>
+      <input class="field" id="creatorEditBanner" type="file" accept="image/png,image/jpeg,image/webp">
+      <img class="banner-preview" id="creatorBannerPreview" src="${esc(member.banner_url||EMPTY)}">
+    </div>
+
     <div><label>Website</label><input class="field" id="creatorEditWebsite" value="${esc(member.website_url||'')}"></div>
     <div><label>Instagram</label><input class="field" id="creatorEditInstagram" value="${esc(member.instagram_url||'')}"></div>
     <div><label>TikTok</label><input class="field" id="creatorEditTikTok" value="${esc(member.tiktok_url||'')}"></div>
@@ -1062,23 +1080,125 @@ function openCreatorProfileEditor(member){
     <div><label>X / Twitter</label><input class="field" id="creatorEditX" value="${esc(member.x_url||'')}"></div>
     <div><label>LinkedIn</label><input class="field" id="creatorEditLinkedIn" value="${esc(member.linkedin_url||'')}"></div>
     <div><label>Discord invite or profile</label><input class="field" id="creatorEditDiscord" value="${esc(member.discord_url||'')}"></div>
-  </div><button class="primary" id="saveCreatorProfileBtn" style="margin-top:15px">Save profile</button>`);
-  setTimeout(()=>$('#saveCreatorProfileBtn').onclick=async()=>{
-    let avatar=member.avatar_url||null,banner=member.banner_url||null;
-    try{
-      if($('#creatorEditAvatar').files[0])avatar=await uploadProfileAsset($('#creatorEditAvatar').files[0],'avatar');
-      if($('#creatorEditBanner').files[0])banner=await uploadProfileAsset($('#creatorEditBanner').files[0],'banner')
-    }catch(err){return showToast(err.message)}
-    const username=$('#creatorEditUsername').value.trim().toLowerCase().replace(/[^a-z0-9._-]/g,'');
-    const updates={full_name:$('#creatorEditName').value.trim(),username,headline:$('#creatorEditHeadline').value.trim()||null,niche:$('#creatorEditNiche').value.trim()||null,location:$('#creatorEditLocation').value.trim()||null,bio:$('#creatorEditBio').value.trim()||null,avatar_url:avatar,banner_url:banner,website_url:$('#creatorEditWebsite').value.trim()||null,instagram_url:$('#creatorEditInstagram').value.trim()||null,tiktok_url:$('#creatorEditTikTok').value.trim()||null,youtube_url:$('#creatorEditYouTube').value.trim()||null,twitch_url:$('#creatorEditTwitch').value.trim()||null,x_url:$('#creatorEditX').value.trim()||null,linkedin_url:$('#creatorEditLinkedIn').value.trim()||null,discord_url:$('#creatorEditDiscord').value.trim()||null};
-    if(!updates.full_name)return showToast('Display name is required');
-    if(!username)return showToast('Username is required');
-    const {error}=await sb.from('profiles').update(updates).eq('id',user.id);
-    if(error){
-      if(/duplicate|unique/i.test(error.message||''))return showToast('That username is already taken. Choose another one.');
-      return showToast(error.message)
+  </div>
+
+  <div class="profile-save-status muted" id="profileSaveStatus"></div>
+  <button class="primary" id="saveCreatorProfileBtn" style="margin-top:15px;width:100%">Save changes</button>`);
+
+  setTimeout(()=>{
+    const saveButton=$('#saveCreatorProfileBtn');
+    const status=$('#profileSaveStatus');
+
+    $('#creatorEditAvatar')?.addEventListener('change',event=>{
+      const file=event.target.files?.[0];
+      if(file)$('#creatorAvatarPreview').src=URL.createObjectURL(file)
+    });
+
+    $('#creatorEditBanner')?.addEventListener('change',event=>{
+      const file=event.target.files?.[0];
+      if(file)$('#creatorBannerPreview').src=URL.createObjectURL(file)
+    });
+
+    saveButton.onclick=async()=>{
+      if(saveButton.disabled)return;
+
+      const fullName=$('#creatorEditName').value.trim();
+      const username=$('#creatorEditUsername').value
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9._-]/g,'')
+        .replace(/^[._-]+|[._-]+$/g,'');
+
+      if(!fullName)return showToast('Display name is required.');
+      if(username.length<3)return showToast('Username must contain at least 3 characters.');
+
+      saveButton.disabled=true;
+      saveButton.textContent='Saving…';
+      status.textContent='Saving your profile securely…';
+
+      try{
+        let avatar=member.avatar_url||null;
+        let banner=member.banner_url||null;
+
+        const avatarFile=$('#creatorEditAvatar').files?.[0];
+        const bannerFile=$('#creatorEditBanner').files?.[0];
+
+        if(avatarFile){
+          status.textContent='Uploading profile picture…';
+          avatar=await uploadProfileAsset(avatarFile,'avatar')
+        }
+
+        if(bannerFile){
+          status.textContent='Uploading banner…';
+          banner=await uploadProfileAsset(bannerFile,'banner')
+        }
+
+        const updates={
+          full_name:fullName,
+          username,
+          headline:$('#creatorEditHeadline').value.trim()||null,
+          niche:$('#creatorEditNiche').value.trim()||null,
+          location:$('#creatorEditLocation').value.trim()||null,
+          bio:$('#creatorEditBio').value.trim()||null,
+          avatar_url:avatar,
+          banner_url:banner,
+          website_url:normalizeProfileUrl($('#creatorEditWebsite').value),
+          instagram_url:normalizeProfileUrl($('#creatorEditInstagram').value),
+          tiktok_url:normalizeProfileUrl($('#creatorEditTikTok').value),
+          youtube_url:normalizeProfileUrl($('#creatorEditYouTube').value),
+          twitch_url:normalizeProfileUrl($('#creatorEditTwitch').value),
+          x_url:normalizeProfileUrl($('#creatorEditX').value),
+          linkedin_url:normalizeProfileUrl($('#creatorEditLinkedIn').value),
+          discord_url:normalizeProfileUrl($('#creatorEditDiscord').value),
+          updated_at:new Date().toISOString()
+        };
+
+        status.textContent='Saving changes…';
+
+        const {data:updated,error}=await sb
+          .from('profiles')
+          .update(updates)
+          .eq('id',user.id)
+          .select('*')
+          .single();
+
+        if(error)throw error;
+        if(!updated)throw new Error('The profile update was not returned by the database.');
+
+        // Update the in-memory profile only after Supabase confirms the save.
+        profile=updated;
+        member=updated;
+        syncIdentity();
+
+        status.textContent='Saved successfully.';
+        showToast('Profile changes saved');
+        closeModal();
+
+        history.replaceState(
+          {profileId:user.id},
+          '',
+          `/${encodeURIComponent(updated.username||user.id)}`
+        );
+
+        await renderPublicProfile(user.id)
+      }catch(error){
+        console.error('Profile save failed:',error);
+
+        if(/duplicate|unique/i.test(error.message||'')){
+          status.textContent='That username is already taken.';
+          showToast('That username is already taken. Choose another one.')
+        }else if(/row-level security|policy|permission/i.test(error.message||'')){
+          status.textContent='Profile permissions need to be repaired in Supabase.';
+          showToast('Profile save permission is missing. Run the included SQL repair.')
+        }else{
+          status.textContent=error.message||'The profile could not be saved.';
+          showToast(error.message||'The profile could not be saved.')
+        }
+      }finally{
+        saveButton.disabled=false;
+        saveButton.textContent='Save changes'
+      }
     }
-    closeModal();showToast('Profile updated');history.replaceState({profileId:user.id},'',`/${encodeURIComponent(username)}`);renderPublicProfile(user.id)
   },0)
 }
 async function connectionsPage(){
@@ -1536,12 +1656,23 @@ async function uploadProfileAsset(file,kind='avatar'){
   if(!file)throw new Error('Choose an image.');
   if(!file.type.startsWith('image/'))throw new Error('Choose a JPG, PNG, or WebP image.');
   if(file.size>6*1024*1024)throw new Error('Choose an image under 6 MB.');
+
   const ext=(file.name.split('.').pop()||'jpg').toLowerCase();
-  const path=`${user.id}/${kind}-${Date.now()}.${ext}`;
-  const {error}=await sb.storage.from('profile-assets').upload(path,file,{upsert:true,contentType:file.type});
+  const safeExt=['jpg','jpeg','png','webp'].includes(ext)?ext:'jpg';
+  const path=`${user.id}/${kind}.${safeExt}`;
+
+  const {error}=await sb.storage
+    .from('profile-assets')
+    .upload(path,file,{
+      upsert:true,
+      cacheControl:'3600',
+      contentType:file.type
+    });
+
   if(error)throw error;
+
   const {data}=sb.storage.from('profile-assets').getPublicUrl(path);
-  return data.publicUrl;
+  return `${data.publicUrl}?v=${Date.now()}`
 }
 function needsOnboarding(p){
   return !p.onboarding_completed;
