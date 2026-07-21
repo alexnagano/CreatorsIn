@@ -746,15 +746,29 @@ async function fetchProfileCounts(memberId){
 }
 async function renderPublicProfile(memberId){
   await loadSocial();
-  const [{data:member,error},{data:entries},{data:pins},{data:services}]=await Promise.all([
+  const [{data:member,error},{data:entries},{data:pins},{data:services},{data:creatorPosts}]=await Promise.all([
     sb.from('profiles').select('*').eq('id',memberId).single(),
     sb.from('profile_portfolio_entries').select('*').eq('profile_id',memberId).order('sort_order').order('start_date',{ascending:false}),
     sb.from('profile_pinned_posts').select('post_id,position').eq('profile_id',memberId).order('position'),
-    sb.from('creator_services').select('*').eq('profile_id',memberId).order('sort_order').order('created_at')
+    sb.from('creator_services').select('*').eq('profile_id',memberId).order('sort_order').order('created_at'),
+    sb.from('posts').select('id').eq('user_id',memberId)
   ]);
   if(error){main.innerHTML=`<section class="card empty"><h2>Profile not found</h2><p class="muted">${esc(error.message)}</p></section>`;return}
   if(memberId===user.id){profile=member;syncIdentity()}
   const counts=await fetchProfileCounts(memberId);
+
+  const creatorPostIds=(creatorPosts||[]).map(post=>post.id);
+  let creatorTotalLikes=0;
+
+  if(creatorPostIds.length){
+    const {count:likeCount,error:likeCountError}=await sb
+      .from('post_likes')
+      .select('*',{count:'exact',head:true})
+      .in('post_id',creatorPostIds);
+
+    if(!likeCountError)creatorTotalLikes=likeCount||0;
+  }
+
   const isSelf=memberId===user.id;
   const rel=relationship(memberId);
   const isFollowing=follows.some(f=>f.following_id===memberId);
@@ -797,10 +811,11 @@ async function renderPublicProfile(memberId){
           ${member.remote_available?'<span class="business-status">Remote available</span>':''}
         </div>
         ${socialLinks.length?`<div class="creator-socials">${socialLinks.map(s=>`<a class="social-pill" href="${esc(s[1])}" target="_blank" rel="noopener"><span>${s[2]}</span>${s[0]}</a>`).join('')}</div>`:''}
-        <div class="creator-stats">
+        <div class="creator-stats creator-stats-five">
           <div class="creator-stat"><strong>${counts.followers}</strong><span>Followers</span></div>
           <div class="creator-stat"><strong>${counts.following}</strong><span>Following</span></div>
           <div class="creator-stat"><strong>${counts.posts}</strong><span>Posts</span></div>
+          <div class="creator-stat" title="Total likes received across all posts"><strong>${creatorTotalLikes}</strong><span>Total likes</span></div>
           <div class="creator-stat"><strong>${completedDeals}</strong><span>Deals & experience</span></div>
         </div>
       </div>

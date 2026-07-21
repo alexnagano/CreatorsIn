@@ -891,6 +891,25 @@ html[data-theme="dark"] .side-create-post{
   cursor:wait;
 }
 
+
+/* Creator profile popularity metric */
+.creator-stats-five{
+  grid-template-columns:repeat(5,minmax(0,1fr))!important;
+}
+.creator-stats-five .creator-stat:nth-child(4) strong{
+  color:#ef4444;
+}
+@media(max-width:900px){
+  .creator-stats-five{
+    grid-template-columns:repeat(3,minmax(0,1fr))!important;
+  }
+}
+@media(max-width:560px){
+  .creator-stats-five{
+    grid-template-columns:repeat(2,minmax(0,1fr))!important;
+  }
+}
+
 </style>
 </head>
 <body>
