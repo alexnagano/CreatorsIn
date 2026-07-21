@@ -719,6 +719,112 @@ html[data-theme="dark"] .brand-header{background:rgba(10,21,35,.96);border-color
   .side-create-post{display:none}
 }
 
+
+/* HOTFIX: sidebar is the only navigation */
+header .nav,
+header .actions,
+header button,
+.top-nav,
+.top-navigation,
+.desktop-nav,
+.main-nav,
+.navbar-nav {
+  display:none!important;
+}
+
+.brand-header{
+  justify-content:flex-start!important;
+}
+
+.brand-header .logo{
+  display:block!important;
+}
+
+/* Prevent legacy nav from flashing before JavaScript loads */
+body > header:not(.brand-header) .nav,
+body > header:not(.brand-header) .actions{
+  display:none!important;
+}
+
+
+/* Professional sidebar icon system */
+.side-icon{
+  width:26px;
+  height:26px;
+  display:grid;
+  place-items:center;
+  flex:0 0 26px;
+}
+.side-icon svg{
+  width:23px;
+  height:23px;
+  fill:none;
+  stroke:currentColor;
+  stroke-width:1.9;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+  transition:transform .18s ease,stroke-width .18s ease;
+}
+.side-nav-item:hover .side-icon svg{
+  transform:scale(1.07);
+}
+.side-nav-item.active .side-icon svg{
+  stroke-width:2.15;
+}
+.side-nav-item{
+  column-gap:12px!important;
+}
+
+
+.side-icon{
+  width:28px!important;
+  height:28px!important;
+  display:grid!important;
+  place-items:center!important;
+  flex:0 0 28px!important;
+}
+.side-icon svg{
+  width:24px!important;
+  height:24px!important;
+  fill:none!important;
+  stroke:currentColor!important;
+  stroke-width:1.9!important;
+  stroke-linecap:round!important;
+  stroke-linejoin:round!important;
+  overflow:visible!important;
+}
+.side-nav-item{
+  grid-template-columns:28px minmax(0,1fr) auto!important;
+  gap:14px!important;
+}
+.side-nav-item.active .side-icon svg{
+  stroke-width:2.2!important;
+}
+.side-nav-item:hover .side-icon svg{
+  transform:none!important;
+}
+.side-create-post{
+  display:flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  gap:10px!important;
+}
+.create-post-icon{
+  width:21px;
+  height:21px;
+  display:grid;
+  place-items:center;
+}
+.create-post-icon svg{
+  width:21px;
+  height:21px;
+  fill:none;
+  stroke:currentColor;
+  stroke-width:1.9;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+}
+
 </style>
 </head>
 <body>
@@ -794,18 +900,18 @@ html[data-theme="dark"] .brand-header{background:rgba(10,21,35,.96);border-color
     </div>
 
     <nav class="side-nav" aria-label="Primary navigation">
-      <button class="active side-nav-item" data-page="feed"><span class="side-icon">⌂</span><span>Home</span></button>
-      <button class="side-nav-item" data-page="discover"><span class="side-icon">⌕</span><span>Discover</span></button>
-      <button class="side-nav-item" data-page="messages"><span class="side-icon">◌</span><span>Inbox</span><span class="side-badge hidden" id="sideInboxCount">0</span></button>
-      <button class="side-nav-item" data-page="opportunities"><span class="side-icon">▣</span><span>Marketplace</span></button>
-      <button class="side-nav-item" data-page="followingFeed"><span class="side-icon">♙</span><span>Following</span></button>
-      <button class="side-nav-item" data-page="bookmarks"><span class="side-icon">♡</span><span>Bookmarks</span></button>
+      <button class="active side-nav-item" data-page="feed"><span class="side-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10.75 12 3l9 7.75"/><path d="M5 9.75V21h14V9.75"/><path d="M9 21v-7h6v7"/></svg></span><span>Home</span></button>
+      <button class="side-nav-item" data-page="discover"><span class="side-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7.5"/><path d="m16.5 16.5 4 4"/></svg></span><span>Discover</span></button>
+      <button class="side-nav-item" data-page="messages"><span class="side-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.5 9.4 9.4 0 0 1-4.2-1L3 21l1.6-4.3A8.2 8.2 0 0 1 3 11.5 8.5 8.5 0 0 1 12 3a8.5 8.5 0 0 1 9 8.5Z"/></svg></span><span>Inbox</span><span class="side-badge hidden" id="sideInboxCount">0</span></button>
+      <button class="side-nav-item" data-page="opportunities"><span class="side-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="7" width="18" height="14" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M3 12h18"/></svg></span><span>Marketplace</span></button>
+      <button class="side-nav-item" data-page="followingFeed"><span class="side-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0"/><circle cx="17" cy="9" r="2.5"/><path d="M15.5 20a4.5 4.5 0 0 1 5.5-4.4"/></svg></span><span>Following</span></button>
+      <button class="side-nav-item" data-page="bookmarks"><span class="side-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18l-6-4-6 4Z"/></svg></span><span>Bookmarks</span></button>
     </nav>
 
     <div class="side-nav-divider"></div>
 
-    <button class="side-nav-item" id="sideCreateBtn"><span class="side-icon">＋</span><span>Create</span></button>
-    <button class="side-nav-item" id="sideMoreBtn" aria-expanded="false"><span class="side-icon">•••</span><span>More</span></button>
+    <button class="side-nav-item" id="sideCreateBtn"><span class="side-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg></span><span>Create</span></button>
+    <button class="side-nav-item" id="sideMoreBtn" aria-expanded="false"><span class="side-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.35"/><circle cx="12" cy="12" r="1.35"/><circle cx="19" cy="12" r="1.35"/></svg></span><span>More</span></button>
 
     <div class="side-more-menu hidden" id="sideMoreMenu">
       <button data-page="profile">Profile</button>
@@ -815,7 +921,7 @@ html[data-theme="dark"] .brand-header{background:rgba(10,21,35,.96);border-color
       <button class="danger-text" id="sideLogoutBtn">Sign out</button>
     </div>
 
-    <button class="primary side-create-post" id="sideCreatePostBtn">✎ Create Post</button>
+    <button class="primary side-create-post" id="sideCreatePostBtn"><span class="create-post-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg></span><span>Create Post</span></button>
   </aside>
   <main class="main" id="main"></main>
   <aside class="right modern-right">
