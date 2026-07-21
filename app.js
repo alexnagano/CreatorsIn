@@ -1196,7 +1196,7 @@ function openCreatorProfileEditor(member){
         history.replaceState(
           {profileId:user.id},
           '',
-          `/${encodeURIComponent(updated.username||user.id)}`
+          `/#/profile/${encodeURIComponent(updated.username||user.id)}`
         );
 
         await renderPublicProfile(user.id)
@@ -1949,7 +1949,7 @@ async function openMemberProfile(memberId,{push=true}={}){
   await renderPublicProfile(memberId);
   if(push){
     const target=memberId===user.id?profile:(members.find(m=>m.id===memberId)||null);
-    if(target?.username)history.pushState({profileId:memberId},'',`/${encodeURIComponent(target.username)}`);
+    if(target?.username)history.pushState({profileId:memberId},'',`/#/profile/${encodeURIComponent(target.username)}`);
   }
 }
 function bindProfileLinks(){
@@ -1962,16 +1962,40 @@ function bindProfileLinks(){
 }
 
 async function routeFromLocation(){
-  const slug=decodeURIComponent(location.pathname.replace(/^\/+|\/+$/g,''));
+  const hashMatch=location.hash.match(/^#\/profile\/(.+)$/);
+  let slug=hashMatch?.[1]?decodeURIComponent(hashMatch[1]):'';
+
+  // Support old profile links once, then convert them to safe hash URLs.
+  if(!slug){
+    const legacyPath=decodeURIComponent(location.pathname.replace(/^\/+|\/+$/g,''));
+    if(legacyPath && legacyPath!=='index.html')slug=legacyPath
+  }
+
   if(!slug)return false;
-  const {data,error}=await sb.from('profiles').select('id').eq('username',slug).maybeSingle();
+
+  const {data,error}=await sb.from('profiles')
+    .select('id,username')
+    .eq('username',slug)
+    .maybeSingle();
+
   if(error||!data)return false;
+
+  history.replaceState(
+    {profileId:data.id},
+    '',
+    `/#/profile/${encodeURIComponent(data.username)}`
+  );
+
   await openMemberProfile(data.id,{push:false});
   return true
 }
 window.addEventListener('popstate',async event=>{
   if(event.state?.profileId)await openMemberProfile(event.state.profileId,{push:false});
   else if(!(await routeFromLocation()))setPage('feed')
+});
+
+window.addEventListener('hashchange',async()=>{
+  if(!(await routeFromLocation()))setPage('feed')
 });
 
 
