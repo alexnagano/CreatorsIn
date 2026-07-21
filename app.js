@@ -1136,10 +1136,10 @@ function openCreatorProfileEditor(member){
         const updates={
           full_name:fullName,
           username,
-          headline:$('#creatorEditHeadline').value.trim()||null,
-          niche:$('#creatorEditNiche').value.trim()||null,
-          location:$('#creatorEditLocation').value.trim()||null,
-          bio:$('#creatorEditBio').value.trim()||null,
+          headline:$('#creatorEditHeadline').value.trim(),
+          niche:$('#creatorEditNiche').value.trim(),
+          location:$('#creatorEditLocation').value.trim(),
+          bio:$('#creatorEditBio').value.trim(),
           avatar_url:avatar,
           banner_url:banner,
           website_url:normalizeProfileUrl($('#creatorEditWebsite').value),
@@ -1187,6 +1187,9 @@ function openCreatorProfileEditor(member){
         if(/duplicate|unique/i.test(error.message||'')){
           status.textContent='That username is already taken.';
           showToast('That username is already taken. Choose another one.')
+        }else if(/not-null|null value in column/i.test(error.message||'')){
+          status.textContent='One of the optional profile fields is still required by the database. Run the included SQL hotfix.';
+          showToast('Run PROFILE-OPTIONAL-FIELDS-HOTFIX.sql in Supabase, then save again.')
         }else if(/row-level security|policy|permission/i.test(error.message||'')){
           status.textContent='Profile permissions need to be repaired in Supabase.';
           showToast('Profile save permission is missing. Run the included SQL repair.')
