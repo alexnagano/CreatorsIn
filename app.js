@@ -800,11 +800,11 @@ async function renderPublicProfile(memberId){
         <div class="creator-profile-top">
           <img class="creator-profile-photo" src="${esc(member.avatar_url||EMPTY)}" alt="${esc(member.full_name)}">
           <div class="creator-identity">
-            <div class="creator-name-row"><h1>${esc(member.full_name)}</h1>${member.is_verified?'<span class="verified">✓</span>':''}${member.is_founder?'<span class="badge">Founder</span>':''}</div>
+            <div class="creator-name-row"><h1 class="creator-name">${esc(member.full_name)}</h1>${member.is_verified?'<span class="verified">✓</span>':''}${member.is_founder?'<span class="badge">Founder</span>':''}</div>
             <div class="creator-tagline">${esc(member.headline||member.account_type||'Creator')}</div>
             <div class="muted">@${esc(member.username||'member')}${member.location?` · ${esc(member.location)}`:''}</div>
           </div>
-          <div class="creator-actions">${followButton}${connectionButton}${messageButton}${isSelf?'<button class="primary" id="editOwnProfileBtn">Edit profile</button>':''}<button class="secondary" id="copyProfileLinkBtn">Share profile</button></div>
+          <div class="creator-actions creator-header-actions">${followButton}${connectionButton}${messageButton}${isSelf?'<button class="primary" id="editOwnProfileBtn">Edit profile</button>':''}<button class="secondary" id="copyProfileLinkBtn">Share profile</button></div>
         </div>
         <p class="creator-bio">${esc(member.bio||'This creator has not added a bio yet.')}</p>
         <div class="creator-meta">${member.niche?`<span class="chip">${esc(member.niche)}</span>`:''}<span class="chip">${esc(member.account_type||'creator')}</span>${completedDeals?`<span class="deal-badge">${completedDeals} previous deal${completedDeals===1?'':'s'}</span>`:''}</div>
