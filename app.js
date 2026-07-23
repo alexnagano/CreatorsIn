@@ -1142,14 +1142,26 @@ function openCreatorProfileEditor(member){
         const avatarFile=$('#creatorEditAvatar').files?.[0];
         const bannerFile=$('#creatorEditBanner').files?.[0];
 
+        const uploadWarnings=[];
+
         if(avatarFile){
-          status.textContent='Uploading profile picture…';
-          avatar=await uploadProfileAsset(avatarFile,'avatar')
+          status.textContent='Optimizing and uploading profile picture…';
+          try{
+            avatar=await uploadProfileAsset(avatarFile,'avatar')
+          }catch(uploadError){
+            console.error(uploadError);
+            uploadWarnings.push(`Profile picture: ${uploadError.message}`)
+          }
         }
 
         if(bannerFile){
-          status.textContent='Uploading banner…';
-          banner=await uploadProfileAsset(bannerFile,'banner')
+          status.textContent='Optimizing and uploading banner…';
+          try{
+            banner=await uploadProfileAsset(bannerFile,'banner')
+          }catch(uploadError){
+            console.error(uploadError);
+            uploadWarnings.push(`Banner: ${uploadError.message}`)
+          }
         }
 
         const updates={
@@ -1189,8 +1201,14 @@ function openCreatorProfileEditor(member){
         member=updated;
         syncIdentity();
 
-        status.textContent='Saved successfully.';
-        showToast('Profile changes saved');
+        if(uploadWarnings.length){
+          status.textContent='Profile text saved, but an image could not be uploaded.';
+          showToast('Profile saved. One image upload needs attention.');
+          alert(`Your profile details were saved.\n\n${uploadWarnings.join('\n')}`)
+        }else{
+          status.textContent='Saved successfully.';
+          showToast('Profile changes saved')
+        }
         closeModal();
 
         history.replaceState(
@@ -1206,6 +1224,9 @@ function openCreatorProfileEditor(member){
         if(/duplicate|unique/i.test(error.message||'')){
           status.textContent='That username is already taken.';
           showToast('That username is already taken. Choose another one.')
+        }else if(/failed to fetch|network|load failed/i.test(error.message||'')){
+          status.textContent='The browser could not reach Supabase. Your existing profile data is safe.';
+          showToast('Could not reach Supabase. Check your connection and storage setup.')
         }else if(/not-null|null value in column/i.test(error.message||'')){
           status.textContent='One of the optional profile fields is still required by the database. Run the included SQL hotfix.';
           showToast('Run PROFILE-OPTIONAL-FIELDS-HOTFIX.sql in Supabase, then save again.')
@@ -1711,26 +1732,93 @@ function strengthCard(){
   ];
   return `<section class="card profile-strength"><div class="strength-row"><strong>Profile strength</strong><strong>${s.percent}%</strong></div><div class="strength-bar"><span style="width:${s.percent}%"></span></div><div class="checklist">${items.map(i=>`<div class="checkitem ${i[1]?'done':''}">${i[1]?'✓':'○'} ${i[0]}</div>`).join('')}</div></section>`
 }
-async function uploadProfileAsset(file,kind='avatar'){
+async function prepareProfileImage(file,kind='avatar'){
   if(!file)throw new Error('Choose an image.');
   if(!file.type.startsWith('image/'))throw new Error('Choose a JPG, PNG, or WebP image.');
-  if(file.size>6*1024*1024)throw new Error('Choose an image under 6 MB.');
+  if(file.size>12*1024*1024)throw new Error('Choose an image under 12 MB.');
 
-  const ext=(file.name.split('.').pop()||'jpg').toLowerCase();
-  const safeExt=['jpg','jpeg','png','webp'].includes(ext)?ext:'jpg';
-  const path=`${user.id}/${kind}.${safeExt}`;
+  const maxWidth=kind==='banner'?1800:900;
+  const maxHeight=kind==='banner'?700:900;
 
-  const {error}=await sb.storage
-    .from('profile-assets')
-    .upload(path,file,{
-      upsert:true,
-      cacheControl:'3600',
-      contentType:file.type
-    });
+  return await new Promise((resolve,reject)=>{
+    const image=new Image();
+    const objectUrl=URL.createObjectURL(file);
 
-  if(error)throw error;
+    image.onload=()=>{
+      try{
+        let width=image.naturalWidth;
+        let height=image.naturalHeight;
+        const scale=Math.min(1,maxWidth/width,maxHeight/height);
+        width=Math.max(1,Math.round(width*scale));
+        height=Math.max(1,Math.round(height*scale));
+
+        const canvas=document.createElement('canvas');
+        canvas.width=width;
+        canvas.height=height;
+        const context=canvas.getContext('2d',{alpha:false});
+        context.fillStyle='#ffffff';
+        context.fillRect(0,0,width,height);
+        context.drawImage(image,0,0,width,height);
+
+        canvas.toBlob(blob=>{
+          URL.revokeObjectURL(objectUrl);
+          if(!blob)return reject(new Error('The selected image could not be processed.'));
+          resolve(new File(
+            [blob],
+            `${kind}.jpg`,
+            {type:'image/jpeg',lastModified:Date.now()}
+          ))
+        },'image/jpeg',kind==='banner'?.88:.9)
+      }catch(error){
+        URL.revokeObjectURL(objectUrl);
+        reject(error)
+      }
+    };
+
+    image.onerror=()=>{
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error('The selected image could not be opened.'))
+    };
+
+    image.src=objectUrl
+  })
+}
+
+async function uploadProfileAsset(file,kind='avatar'){
+  const optimized=await prepareProfileImage(file,kind);
+  const path=`${user.id}/${kind}.jpg`;
+
+  const uploadOnce=async()=>{
+    const {error}=await sb.storage
+      .from('profile-assets')
+      .upload(path,optimized,{
+        upsert:true,
+        cacheControl:'3600',
+        contentType:'image/jpeg'
+      });
+
+    if(error)throw error
+  };
+
+  try{
+    await uploadOnce()
+  }catch(error){
+    // A short retry handles temporary browser/network failures.
+    if(/failed to fetch|network|load failed/i.test(error?.message||String(error))){
+      await new Promise(resolve=>setTimeout(resolve,900));
+      try{
+        await uploadOnce()
+      }catch(retryError){
+        throw new Error('Image upload could not reach Supabase. Check the profile-assets bucket and run the included storage repair SQL.')
+      }
+    }else{
+      throw error
+    }
+  }
 
   const {data}=sb.storage.from('profile-assets').getPublicUrl(path);
+  if(!data?.publicUrl)throw new Error('The uploaded image URL could not be created.');
+
   return `${data.publicUrl}?v=${Date.now()}`
 }
 function needsOnboarding(p){
