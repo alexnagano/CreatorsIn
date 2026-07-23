@@ -1482,18 +1482,37 @@ async function openConversation(id){
   $('#chatPanel').innerHTML=`<div class="chat-head">
     <img class="chat-head-avatar" src="${esc(other?.avatar_url||EMPTY)}">
     <div class="chat-head-copy"><button class="profile-link" data-profile-id="${other?.id||''}"><strong>${esc(other?.full_name||'Conversation')} ${other?.is_verified?'<span class="verified">✓</span>':''}</strong></button><span id="chatPresence">@${esc(other?.username||'member')} · ${esc(other?.headline||other?.account_type||'member')}</span></div>
-    <div class="chat-menu-wrap"><button class="icon-btn" id="chatMenuBtn" aria-label="Chat options">•••</button>
+    <div class="chat-menu-wrap"><button class="chat-options-btn" id="chatMenuBtn" aria-label="Conversation options" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
       <div class="chat-menu hidden" id="chatMenu">
-        <button id="pinChatBtn">${pref?.is_pinned?'Unpin chat':'Pin chat'}</button>
-        <button id="muteChatBtn">${pref?.is_muted?'Unmute chat':'Mute chat'}</button>
-        <button class="danger" id="deleteChatBtn">Delete chat</button>
+        <button id="viewChatProfileBtn"><span>View profile</span></button>
+        <button id="pinChatBtn"><span>${pref?.is_pinned?'Unpin chat':'Pin chat'}</span></button>
+        <button id="muteChatBtn"><span>${pref?.is_muted?'Unmute chat':'Mute chat'}</span></button>
+        <div class="chat-menu-divider"></div>
+        <button class="danger" id="deleteChatBtn"><span>Delete conversation</span></button>
       </div>
     </div>
   </div>
   <div class="chat-body" id="chatBody">${renderMessageRows(msgs,other)}</div>
   <div class="typing-line" id="typingLine"></div>
   <div class="chat-compose"><textarea class="field" id="messageInput" rows="1" placeholder="Message ${esc(other?.full_name||'member')}"></textarea><button class="primary" id="sendMessageBtn">Send</button></div>`;
-  $('#chatMenuBtn').onclick=()=>$('#chatMenu').classList.toggle('hidden');
+  $('#chatMenuBtn').onclick=event=>{
+    event.stopPropagation();
+    const menu=$('#chatMenu');
+    const open=menu.classList.contains('hidden');
+    menu.classList.toggle('hidden',!open);
+    $('#chatMenuBtn').setAttribute('aria-expanded',String(open))
+  };
+  document.addEventListener('click',event=>{
+    if(!event.target.closest('.chat-menu-wrap')){
+      $('#chatMenu')?.classList.add('hidden');
+      $('#chatMenuBtn')?.setAttribute('aria-expanded','false')
+    }
+  },{once:true});
+  $('#viewChatProfileBtn').onclick=()=>{
+    if(other?.id)openMemberProfile(other.id)
+  };
   $('#pinChatBtn').onclick=()=>setConversationPreference(id,'is_pinned',!pref?.is_pinned);
   $('#muteChatBtn').onclick=()=>setConversationPreference(id,'is_muted',!pref?.is_muted);
   $('#deleteChatBtn').onclick=()=>deleteChatForMe(id);
@@ -1554,18 +1573,18 @@ async function deleteChatForMe(id){
 }
 
 async function opportunitiesPage(){
-  const isBusiness=['brand','agency'].includes(profile.account_type);
+  const isBrand=profile.account_type==='brand';
   const {data:opps,error}=await sb.from('opportunities')
     .select('*,profiles!opportunities_business_id_fkey(full_name,avatar_url,is_verified,account_type)')
     .eq('status','open').order('created_at',{ascending:false});
   if(error){main.innerHTML=`<section class="card empty"><h2>Could not load opportunities</h2><p class="muted">${esc(error.message)}</p></section>`;return}
   let myApplications=[];
-  if(!isBusiness){
+  if(!isBrand){
     const {data}=await sb.from('applications').select('opportunity_id,status').eq('applicant_id',user.id);
     myApplications=data||[];
   }
   let businessStats='';
-  if(isBusiness){
+  if(isBrand){
     const {data:mine}=await sb.from('opportunities').select('id,status').eq('business_id',user.id);
     const ids=(mine||[]).map(x=>x.id);
     let apps=[];
@@ -1576,13 +1595,24 @@ async function opportunitiesPage(){
       <section class="card stat-card"><strong>${apps.filter(x=>x.status==='accepted').length}</strong><span class="muted">Accepted creators</span></section>
     </div>`;
   }
-  main.innerHTML=`<div class="page-title"><div><h1>Opportunities</h1><p class="muted">Real partnerships posted by registered businesses and agencies.</p></div>${isBusiness?'<button class="primary" id="createOpportunityBtn">Post opportunity</button>':''}</div>
+  main.innerHTML=`<div class="page-title"><div><h1>Opportunities</h1><p class="muted">Paid partnerships and creator work posted by registered brands.</p></div>${isBrand?'<button class="primary" id="createOpportunityBtn">Post opportunity</button>':''}</div>
     ${businessStats}<div class="feed" id="opportunityList"></div>`;
   const list=$('#opportunityList');
   list.innerHTML=(opps||[]).length?(opps||[]).map(o=>{
     const existing=myApplications.find(a=>a.opportunity_id===o.id);
     return `<article class="card opportunity">
-      <div class="post-head"><img class="avatar" src="${esc(o.profiles?.avatar_url||EMPTY)}"><div><h3>${esc(o.title)}</h3><div class="muted">${esc(o.profiles?.full_name||'Business')} ${o.profiles?.is_verified?'<span class="verified">✓</span>':''}</div></div></div>
+      <div class="post-head opportunity-brand-head">
+        <button class="profile-avatar-button" data-profile-id="${o.business_id}" aria-label="View ${esc(o.profiles?.full_name||'brand')} profile">
+          <img class="avatar" src="${esc(o.profiles?.avatar_url||EMPTY)}">
+        </button>
+        <div>
+          <h3>${esc(o.title)}</h3>
+          <button class="profile-link opportunity-brand-link" data-profile-id="${o.business_id}">
+            ${esc(o.profiles?.full_name||'Brand')} ${o.profiles?.is_verified?'<span class="verified">✓</span>':''}
+          </button>
+          <div class="muted">Brand opportunity</div>
+        </div>
+      </div>
       <p>${esc(o.description)}</p>
       <div class="opportunity-meta">
         ${o.compensation?`<span class="chip">${esc(o.compensation)}</span>`:''}
@@ -1594,17 +1624,24 @@ async function opportunitiesPage(){
       ${o.deadline?`<div class="muted">Apply by ${new Date(o.deadline).toLocaleDateString()}</div>`:''}
       <div class="opportunity-footer">
         ${o.business_id===user.id?`<button class="secondary" data-view-applicants="${o.id}">View applicants</button><button class="secondary danger" data-close-opportunity="${o.id}">Close</button>`:
-        isBusiness?'<span class="muted">Business accounts cannot apply.</span>':
-        existing?`<button class="secondary" disabled>Application: ${esc(existing.status)}</button>`:`<button class="primary" data-apply="${o.id}">Apply</button>`}
+        isBrand?`<button class="secondary" data-profile-id="${o.business_id}">View brand</button>`:
+        `<button class="secondary" data-profile-id="${o.business_id}">View brand</button>
+         <button class="secondary" data-message-brand="${o.business_id}">Message brand</button>
+         ${existing?`<button class="secondary" disabled>Application: ${esc(existing.status)}</button>`:`<button class="primary" data-apply="${o.id}">Apply</button>`}` }
       </div>
     </article>`
-  }).join(''):`<section class="card empty"><h2>No opportunities yet</h2><p class="muted">${isBusiness?'Post the first real opportunity for the community.':'Businesses have not posted any opportunities yet.'}</p></section>`;
-  if(isBusiness)$('#createOpportunityBtn').onclick=openOpportunityForm;
+  }).join(''):`<section class="card empty"><h2>No opportunities yet</h2><p class="muted">${isBrand?'Post the first real opportunity for the community.':'Brands have not posted any opportunities yet.'}</p></section>`;
+  if(isBrand)$('#createOpportunityBtn').onclick=openOpportunityForm;
+  bindProfileLinks();
+  $$('[data-message-brand]').forEach(b=>b.onclick=()=>startConversation(b.dataset.messageBrand));
   $$('[data-apply]').forEach(b=>b.onclick=()=>openApplicationForm(b.dataset.apply));
   $$('[data-view-applicants]').forEach(b=>b.onclick=()=>viewApplicants(b.dataset.viewApplicants));
   $$('[data-close-opportunity]').forEach(b=>b.onclick=async()=>{const {error}=await sb.from('opportunities').update({status:'closed'}).eq('id',b.dataset.closeOpportunity).eq('business_id',user.id);if(error)showToast(error.message);else{showToast('Opportunity closed');opportunitiesPage()}})
 }
 function openOpportunityForm(){
+  if(profile?.account_type!=='brand'){
+    return showToast('Only verified brand accounts can post opportunities.')
+  }
   modal('Post an opportunity',`<div class="form-grid">
     <div class="wide"><label>Title</label><input class="field" id="oppTitle" placeholder="UGC creators for summer campaign"></div>
     <div><label>Opportunity type</label><select class="field" id="oppType"><option>Paid sponsorship</option><option>UGC project</option><option>Affiliate program</option><option>Ambassador program</option><option>Collaboration</option><option>Job or contract</option></select></div>

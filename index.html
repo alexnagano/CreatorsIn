@@ -1307,6 +1307,133 @@ html[data-theme="dark"] .side-create-post{
   }
 }
 
+
+/* Premium conversation options */
+.chat-menu-wrap{
+  position:relative;
+  margin-left:auto;
+}
+
+.chat-options-btn{
+  width:42px;
+  height:42px;
+  border:0;
+  border-radius:50%;
+  background:transparent;
+  color:var(--muted);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:4px;
+  cursor:pointer;
+  transition:background .16s ease,color .16s ease,transform .16s ease;
+}
+
+.chat-options-btn span{
+  width:4px;
+  height:4px;
+  border-radius:50%;
+  background:currentColor;
+}
+
+.chat-options-btn:hover,
+.chat-options-btn[aria-expanded="true"]{
+  background:var(--soft);
+  color:var(--blue2);
+  transform:scale(1.04);
+}
+
+.chat-options-btn:focus-visible{
+  outline:3px solid rgba(47,140,255,.22);
+  outline-offset:2px;
+}
+
+.chat-menu{
+  position:absolute;
+  top:48px;
+  right:0;
+  z-index:30;
+  min-width:210px;
+  padding:7px;
+  border:1px solid var(--line);
+  border-radius:14px;
+  background:var(--panel);
+  box-shadow:0 18px 45px rgba(15,23,42,.16);
+}
+
+.chat-menu.hidden{display:none}
+
+.chat-menu button{
+  width:100%;
+  min-height:42px;
+  border:0;
+  border-radius:9px;
+  background:transparent;
+  color:var(--text);
+  text-align:left;
+  padding:0 12px;
+  font-weight:750;
+  cursor:pointer;
+}
+
+.chat-menu button:hover{
+  background:var(--soft);
+}
+
+.chat-menu button.danger{
+  color:#dc2626;
+}
+
+.chat-menu-divider{
+  height:1px;
+  background:var(--line);
+  margin:6px 4px;
+}
+
+/* Opportunities */
+.opportunity-brand-head{
+  align-items:center;
+}
+
+.profile-avatar-button{
+  border:0;
+  padding:0;
+  border-radius:50%;
+  background:transparent;
+  cursor:pointer;
+}
+
+.profile-avatar-button:hover{
+  transform:scale(1.03);
+}
+
+.opportunity-brand-link{
+  font-weight:850;
+  margin-top:3px;
+}
+
+.opportunity-footer{
+  display:flex;
+  gap:9px;
+  flex-wrap:wrap;
+  align-items:center;
+}
+
+.opportunity-footer button{
+  min-height:42px;
+}
+
+@media(max-width:620px){
+  .chat-menu{
+    right:-4px;
+    min-width:190px;
+  }
+
+  .opportunity-footer button{
+    flex:1 1 140px;
+  }
+}
+
 </style>
 </head>
 <body>
