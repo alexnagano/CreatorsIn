@@ -1741,6 +1741,85 @@ body.guest-mode .side .identity{
   }
 }
 
+
+/* Working profile and post links with recognizable social brand icons */
+.creator-socials{
+  display:flex!important;
+  gap:9px!important;
+  flex-wrap:wrap!important;
+  align-items:center!important;
+}
+
+.social-pill{
+  display:inline-flex!important;
+  align-items:center!important;
+  gap:8px!important;
+  min-height:42px!important;
+  padding:9px 12px!important;
+  border-radius:999px!important;
+  cursor:pointer!important;
+  transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease!important;
+}
+
+.social-pill:hover{
+  transform:translateY(-2px)!important;
+  box-shadow:0 8px 22px rgba(15,23,42,.10)!important;
+}
+
+.social-brand-icon{
+  width:21px!important;
+  height:21px!important;
+  display:grid!important;
+  place-items:center!important;
+  flex:0 0 21px!important;
+}
+
+.social-brand-icon svg{
+  width:21px!important;
+  height:21px!important;
+  display:block!important;
+  fill:none!important;
+  stroke:currentColor!important;
+  stroke-width:1.9!important;
+  stroke-linecap:round!important;
+  stroke-linejoin:round!important;
+}
+
+.social-brand-icon .social-icon-fill{
+  fill:currentColor!important;
+  stroke:none!important;
+}
+
+.social-external{
+  opacity:.55!important;
+  font-size:12px!important;
+  margin-left:1px!important;
+}
+
+.social-instagram{color:#c13584!important}
+.social-tiktok{color:#111827!important}
+.social-youtube{color:#ff0000!important}
+.social-twitch{color:#9146ff!important}
+.social-x{color:#111827!important}
+.social-linkedin{color:#0a66c2!important}
+.social-discord{color:#5865f2!important}
+.social-facebook{color:#1877f2!important}
+.social-website{color:var(--blue2)!important}
+
+.post-link,
+.public-post-link,
+.featured-post-content a{
+  overflow-wrap:anywhere!important;
+  cursor:pointer!important;
+}
+
+@media(max-width:520px){
+  .social-pill{
+    padding:8px 10px!important;
+    min-height:40px!important;
+  }
+}
+
 </style>
 </head>
 <body>

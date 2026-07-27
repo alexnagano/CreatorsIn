@@ -525,7 +525,18 @@ function renderPostText(text){
   return esc(text).replace(/(^|\s)@([A-Za-z0-9_.-]+)/g,'$1<span class="mention">@$2</span>').replace(/\n/g,'<br>');
 }
 function validHttpUrl(value){
-  try{const u=new URL(value);return ['http:','https:'].includes(u.protocol)?u.toString():null}catch{return null}
+  const clean=String(value||'').trim();
+  if(!clean)return null;
+
+  const candidate=/^https?:\/\//i.test(clean)?clean:`https://${clean}`;
+
+  try{
+    const u=new URL(candidate);
+    if(!['http:','https:'].includes(u.protocol)||!u.hostname)return null;
+    return u.toString()
+  }catch{
+    return null
+  }
 }
 async function uploadPostMedia(file){
   if(!file)return null;
@@ -794,7 +805,7 @@ function renderSocialPost(p,likes=[],comments=[],reposts=[],options={}){
   return `<article class="card social-post">
     ${options.trending?`<div class="repost-context"><span class="engagement-label">🔥 ${engagement} engagement points</span>${options.rank?`<span>Trending #${options.rank}</span>`:''}</div>`:''}
     <div class="social-post-header"><img class="avatar" src="${esc(p.profiles?.avatar_url||EMPTY)}"><div style="flex:1"><button class="profile-link" data-profile-id="${p.user_id}"><strong>${esc(p.profiles?.full_name||'Member')} ${p.profiles?.is_verified?'<span class="verified">✓</span>':''}${p.profiles?.is_founder?'<span class="badge">Founder</span>':''}</strong></button><div class="muted">@${esc(p.profiles?.username||'member')} · ${formatRelativeTime(p.created_at)}</div></div><div style="display:flex;gap:6px;align-items:center">${options.showPin?(options.pinned?`<button class="secondary pin-control" data-unpin-profile-post="${p.id}">Pinned</button>`:`<button class="secondary pin-control" data-pin-profile-post="${p.id}">Pin</button>`):''}${user&&p.user_id===user.id?`<button class="secondary danger" data-delete-post="${p.id}">Delete</button>`:''}</div></div>
-    <div class="social-post-body">${p.content?`<p>${renderPostText(p.content)}</p>`:''}${p.link_url?`<a class="post-link" href="${esc(p.link_url)}" target="_blank" rel="noopener"><strong>Open link ↗</strong><br>${esc(p.link_url)}</a>`:''}</div>
+    <div class="social-post-body">${p.content?`<p>${renderPostText(p.content)}</p>`:''}${p.link_url&&validHttpUrl(p.link_url)?`<a class="post-link" href="${esc(validHttpUrl(p.link_url))}" target="_blank" rel="noopener noreferrer"><strong>Open link ↗</strong><br>${esc(p.link_url)}</a>`:''}</div>
     ${p.media_url?(p.media_type==='video'?`<video class="post-media" controls preload="metadata" src="${esc(p.media_url)}"></video>`:`<img class="post-media" loading="lazy" src="${esc(p.media_url)}" alt="Post media">`):''}
     <div class="post-actions">
       <button class="post-action ${liked?'active':''}" data-like="${p.id}" data-tooltip="Like this post and support the creator" aria-label="Like this post">
@@ -1176,10 +1187,16 @@ async function renderPublicProfile(memberId){
     :`<button class="primary" data-profile-follow="${memberId}">Follow</button>`;
   const messageButton=isSelf?'':`<button class="secondary" data-profile-message="${memberId}">Message</button>`;
   const socialLinks=[
-    ['Website',member.website_url,'↗'],['Instagram',member.instagram_url,'◎'],['TikTok',member.tiktok_url,'♪'],
-    ['YouTube',member.youtube_url,'▶'],['Twitch',member.twitch_url,'◈'],['X',member.x_url,'𝕏'],
-    ['LinkedIn',member.linkedin_url,'in'],['Discord',member.discord_url,'◉']
-  ].filter(x=>x[1]);
+    socialLinkItem('Website','website',member.website_url),
+    socialLinkItem('Instagram','instagram',member.instagram_url),
+    socialLinkItem('TikTok','tiktok',member.tiktok_url),
+    socialLinkItem('YouTube','youtube',member.youtube_url),
+    socialLinkItem('Twitch','twitch',member.twitch_url),
+    socialLinkItem('X','x',member.x_url),
+    socialLinkItem('LinkedIn','linkedin',member.linkedin_url),
+    socialLinkItem('Discord','discord',member.discord_url),
+    socialLinkItem('Facebook','facebook',member.facebook_url)
+  ].filter(Boolean);
   const completedDeals=(entries||[]).filter(e=>e.entry_type==='deal').length;
   const shareUrl=`${location.origin}/${encodeURIComponent(member.username||member.id)}`;
   main.innerHTML=`<div class="creator-profile">
@@ -1204,7 +1221,7 @@ async function renderPublicProfile(memberId){
           ${member.accepting_short_term?'<span class="business-status">Short-term projects</span>':''}
           ${member.remote_available?'<span class="business-status">Remote available</span>':''}
         </div>
-        ${socialLinks.length?`<div class="creator-socials">${socialLinks.map(s=>`<a class="social-pill" href="${esc(s[1])}" target="_blank" rel="noopener"><span>${s[2]}</span>${s[0]}</a>`).join('')}</div>`:''}
+        ${socialLinks.length?`<div class="creator-socials">${socialLinks.map(s=>`<a class="social-pill social-${esc(s.platform)}" href="${esc(s.url)}" target="_blank" rel="noopener noreferrer" aria-label="Open ${esc(s.label)} profile"><span class="social-brand-icon">${socialIcon(s.platform)}</span><span>${esc(s.label)}</span><span class="social-external">↗</span></a>`).join('')}</div>`:''}
         <div class="creator-stats creator-stats-five">
           <div class="creator-stat"><strong>${counts.followers}</strong><span>Followers</span></div>
           <div class="creator-stat"><strong>${counts.following}</strong><span>Following</span></div>
@@ -1333,7 +1350,7 @@ async function renderPublicProfileTab(member,tab,entries=[],pins=[],services=[])
 function renderFeaturedPost(p,isSelf){
   return `<article class="featured-post">
     ${p.media_url?(p.media_type==='video'?`<video class="featured-post-media" controls preload="metadata" src="${esc(p.media_url)}"></video>`:`<img class="featured-post-media" src="${esc(p.media_url)}" alt="Featured content">`):''}
-    <div class="featured-post-content"><span class="featured-label">📌 Featured</span>${p.content?`<p>${renderPostText(p.content)}</p>`:''}${p.link_url?`<a href="${esc(p.link_url)}" target="_blank" rel="noopener">Open link ↗</a>`:''}${isSelf?`<button class="secondary pin-control" data-unpin-profile-post="${p.id}" style="margin-top:10px">Unpin</button>`:''}</div>
+    <div class="featured-post-content"><span class="featured-label">📌 Featured</span>${p.content?`<p>${renderPostText(p.content)}</p>`:''}${p.link_url&&validHttpUrl(p.link_url)?`<a href="${esc(validHttpUrl(p.link_url))}" target="_blank" rel="noopener noreferrer">Open link ↗</a>`:''}${isSelf?`<button class="secondary pin-control" data-unpin-profile-post="${p.id}" style="margin-top:10px">Unpin</button>`:''}</div>
   </article>`
 }
 function renderPortfolioEntries(entries,isSelf){
@@ -1453,11 +1470,66 @@ function openAvailabilityEditor(member){
   },0)
 }
 
-function normalizeProfileUrl(value){
-  const clean=(value||'').trim();
+function cleanSocialHandle(value){
+  return String(value||'')
+    .trim()
+    .replace(/^@+/,'')
+    .replace(/^\/+/,'')
+}
+
+function socialProfileUrl(platform,value){
+  const clean=String(value||'').trim();
   if(!clean)return null;
-  if(/^https?:\/\//i.test(clean))return clean;
-  return `https://${clean}`
+
+  const normalized=validHttpUrl(clean);
+  if(normalized)return normalized;
+
+  const handle=cleanSocialHandle(clean);
+  if(!handle)return null;
+
+  const platformUrls={
+    instagram:`https://www.instagram.com/${handle}`,
+    tiktok:`https://www.tiktok.com/@${handle}`,
+    youtube:handle.startsWith('@')
+      ?`https://www.youtube.com/${handle}`
+      :`https://www.youtube.com/@${handle}`,
+    twitch:`https://www.twitch.tv/${handle}`,
+    x:`https://x.com/${handle}`,
+    linkedin:handle.includes('/')
+      ?`https://www.linkedin.com/${handle}`
+      :`https://www.linkedin.com/in/${handle}`,
+    discord:handle.startsWith('invite/')
+      ?`https://discord.com/${handle}`
+      :`https://discord.gg/${handle}`,
+    facebook:`https://www.facebook.com/${handle}`,
+    website:`https://${handle}`
+  };
+
+  return platformUrls[platform]||null
+}
+
+function socialIcon(platform){
+  const icons={
+    website:`<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"></path></svg>`,
+    instagram:`<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="5"></rect><circle cx="12" cy="12" r="4"></circle><circle class="social-icon-fill" cx="17.4" cy="6.7" r="1"></circle></svg>`,
+    tiktok:`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4v10.1a4.2 4.2 0 1 1-3.1-4.1"></path><path d="M14 4c.8 2.3 2.4 3.8 5 4"></path></svg>`,
+    youtube:`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 8.2a3 3 0 0 0-2.1-2.1C17 5.6 12 5.6 12 5.6s-5 0-6.9.5A3 3 0 0 0 3 8.2 31 31 0 0 0 2.5 12 31 31 0 0 0 3 15.8a3 3 0 0 0 2.1 2.1c1.9.5 6.9.5 6.9.5s5 0 6.9-.5a3 3 0 0 0 2.1-2.1 31 31 0 0 0 .5-3.8 31 31 0 0 0-.5-3.8Z"></path><path class="social-icon-fill" d="m10 15 5-3-5-3v6Z"></path></svg>`,
+    twitch:`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h15v10l-5 5h-4l-3 3v-3H5V4Z"></path><path d="M10 8v5M15 8v5"></path></svg>`,
+    x:`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4 19 20M19 4 5 20"></path></svg>`,
+    linkedin:`<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="9" width="4" height="11"></rect><circle class="social-icon-fill" cx="6" cy="5.5" r="2"></circle><path d="M12 20V9h4v2c1-1.5 4-2 4 2v7M16 13v7"></path></svg>`,
+    discord:`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7c3-2 7-2 10 0 2 3 3 6 2 9-2 2-4 3-6 3l-1-2-1 2c-2 0-4-1-6-3-1-3 0-6 2-9Z"></path><circle class="social-icon-fill" cx="9" cy="13" r="1"></circle><circle class="social-icon-fill" cx="15" cy="13" r="1"></circle></svg>`,
+    facebook:`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 21v-8h3l.5-4H14V7c0-1.2.5-2 2.2-2H18V1.5c-.7-.1-1.8-.2-3-.2-3 0-5 1.8-5 5.2V9H7v4h3v8"></path></svg>`
+  };
+  return icons[platform]||icons.website
+}
+
+function socialLinkItem(label,platform,value){
+  const url=socialProfileUrl(platform,value);
+  return url?{label,platform,url}:null
+}
+
+function normalizeProfileUrl(value,platform='website'){
+  return socialProfileUrl(platform,value)
 }
 
 function openCreatorProfileEditor(member){
@@ -1488,6 +1560,7 @@ function openCreatorProfileEditor(member){
     <div><label>Twitch</label><input class="field" id="creatorEditTwitch" value="${esc(member.twitch_url||'')}"></div>
     <div><label>X / Twitter</label><input class="field" id="creatorEditX" value="${esc(member.x_url||'')}"></div>
     <div><label>LinkedIn</label><input class="field" id="creatorEditLinkedIn" value="${esc(member.linkedin_url||'')}"></div>
+    <div><label>Facebook</label><input class="field" id="creatorEditFacebook" value="${esc(member.facebook_url||'')}" placeholder="facebook.com/yourpage or @yourpage"></div>
     <div><label>Discord invite or profile</label><input class="field" id="creatorEditDiscord" value="${esc(member.discord_url||'')}"></div>
   </div>
 
@@ -1563,14 +1636,15 @@ function openCreatorProfileEditor(member){
           bio:$('#creatorEditBio').value.trim(),
           avatar_url:avatar,
           banner_url:banner,
-          website_url:normalizeProfileUrl($('#creatorEditWebsite').value),
-          instagram_url:normalizeProfileUrl($('#creatorEditInstagram').value),
-          tiktok_url:normalizeProfileUrl($('#creatorEditTikTok').value),
-          youtube_url:normalizeProfileUrl($('#creatorEditYouTube').value),
-          twitch_url:normalizeProfileUrl($('#creatorEditTwitch').value),
-          x_url:normalizeProfileUrl($('#creatorEditX').value),
-          linkedin_url:normalizeProfileUrl($('#creatorEditLinkedIn').value),
-          discord_url:normalizeProfileUrl($('#creatorEditDiscord').value),
+          website_url:normalizeProfileUrl($('#creatorEditWebsite').value,'website'),
+          instagram_url:normalizeProfileUrl($('#creatorEditInstagram').value,'instagram'),
+          tiktok_url:normalizeProfileUrl($('#creatorEditTikTok').value,'tiktok'),
+          youtube_url:normalizeProfileUrl($('#creatorEditYouTube').value,'youtube'),
+          twitch_url:normalizeProfileUrl($('#creatorEditTwitch').value,'twitch'),
+          x_url:normalizeProfileUrl($('#creatorEditX').value,'x'),
+          linkedin_url:normalizeProfileUrl($('#creatorEditLinkedIn').value,'linkedin'),
+          facebook_url:normalizeProfileUrl($('#creatorEditFacebook').value,'facebook'),
+          discord_url:normalizeProfileUrl($('#creatorEditDiscord').value,'discord'),
           updated_at:new Date().toISOString()
         };
 
@@ -2574,7 +2648,7 @@ async function renderPublicHome(){
         </div>
       </div>
       ${p.content?`<div class="public-post-copy"><p>${publicPostText(p.content)}</p></div>`:''}
-      ${p.link_url?`<a class="public-post-link" href="${esc(p.link_url)}" target="_blank" rel="noopener"><strong>Open shared link ↗</strong><br>${esc(p.link_url)}</a>`:''}
+      ${p.link_url&&validHttpUrl(p.link_url)?`<a class="public-post-link" href="${esc(validHttpUrl(p.link_url))}" target="_blank" rel="noopener noreferrer"><strong>Open shared link ↗</strong><br>${esc(p.link_url)}</a>`:''}
       ${p.media_url?(p.media_type==='video'
         ?`<video class="public-post-media" controls playsinline preload="metadata" src="${esc(p.media_url)}"></video>`
         :`<img class="public-post-media" loading="lazy" src="${esc(p.media_url)}" alt="Creator content">`):''}
