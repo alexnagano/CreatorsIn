@@ -1439,6 +1439,110 @@ html[data-theme="dark"] .side-create-post{
   white-space:pre-wrap;
 }
 
+
+#authForm{
+  display:grid;
+  gap:10px;
+}
+
+.auth-msg{
+  min-height:24px;
+  margin-top:10px;
+  font-weight:700;
+  line-height:1.4;
+  color:#dc2626;
+}
+
+.auth-msg[data-type="success"]{
+  color:#15803d;
+}
+
+#emailBtn:disabled{
+  cursor:wait;
+  opacity:.78;
+}
+
+.button-loading{
+  position:relative;
+}
+
+
+.oauth-grid{
+  display:grid;
+  gap:10px;
+  margin-top:16px;
+}
+
+.oauth{
+  width:100%;
+  min-height:48px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:10px;
+  font-weight:800;
+}
+
+.oauth-mark{
+  width:22px;
+  text-align:center;
+  font-size:18px;
+  line-height:1;
+}
+
+.oauth-apple .oauth-mark{
+  font-size:22px;
+  transform:translateY(-1px);
+}
+
+.auth-divider{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  margin:16px 0;
+  color:var(--muted);
+  font-size:12px;
+  font-weight:750;
+}
+
+.auth-divider::before,
+.auth-divider::after{
+  content:"";
+  height:1px;
+  flex:1;
+  background:var(--line);
+}
+
+.auth-link{
+  border:0;
+  background:transparent;
+  color:var(--blue2);
+  font-weight:800;
+  cursor:pointer;
+  justify-self:center;
+  padding:4px 8px;
+}
+
+.auth-link:hover{
+  text-decoration:underline;
+}
+
+#emailBtn{
+  width:100%;
+  margin-top:2px;
+  min-height:48px;
+}
+
+#passwordRecoveryForm{
+  display:grid;
+  gap:10px;
+}
+
+#passwordRecoveryForm label{
+  font-size:13px;
+  font-weight:800;
+}
+
 </style>
 </head>
 <body>
@@ -1481,15 +1585,28 @@ html[data-theme="dark"] .side-create-post{
         <h2 id="authTitle">Create your account</h2>
         <p class="muted">Join the creator economy network built for real work and relationships.</p>
         <div class="tabs"><button class="active" data-auth="signup">Sign up</button><button data-auth="login">Log in</button></div>
-        <button class="secondary oauth" id="googleBtn">Continue with Google</button>
-        <button class="secondary oauth" id="appleBtn">Continue with Apple</button>
-        <p class="muted" style="text-align:center">or</p>
-        <input class="field" id="nameInput" placeholder="Full name">
-        <select class="field" id="typeInput"><option value="creator">Creator</option><option value="brand">Brand</option><option value="agency">Agency</option></select>
-        <input class="field" id="emailInput" type="email" placeholder="Email">
-        <input class="field" id="passwordInput" type="password" placeholder="Password (8+ characters)">
-        <button class="primary" id="emailBtn" style="width:100%;margin-top:10px">Create account</button>
-        <div class="auth-msg" id="authMsg"></div>
+        <div class="oauth-grid">
+          <button class="secondary oauth oauth-google" id="googleBtn" type="button">
+            <span class="oauth-mark">G</span><span>Continue with Google</span>
+          </button>
+          <button class="secondary oauth oauth-apple" id="appleBtn" type="button">
+            <span class="oauth-mark"></span><span>Continue with Apple</span>
+          </button>
+        </div>
+        <div class="auth-divider"><span>or continue with email</span></div>
+        <form id="authForm" novalidate>
+          <input class="field" id="nameInput" name="name" autocomplete="name" placeholder="Full name">
+          <select class="field" id="typeInput" name="account_type" aria-label="Account type">
+            <option value="creator">Creator</option>
+            <option value="brand">Brand</option>
+            <option value="agency">Agency</option>
+          </select>
+          <input class="field" id="emailInput" name="email" type="email" autocomplete="email" inputmode="email" placeholder="Email">
+          <input class="field" id="passwordInput" name="password" type="password" autocomplete="new-password" placeholder="Password (8+ characters)">
+          <button class="primary" id="emailBtn" type="submit">Create account</button>
+          <button class="auth-link hidden" id="forgotPasswordBtn" type="button">Forgot password?</button>
+        </form>
+        <div class="auth-msg" id="authMsg" role="status" aria-live="polite"></div>
         <div class="public-proof">
           <div><strong>Real</strong><span>profiles</span></div>
           <div><strong>Public</strong><span>portfolios</span></div>

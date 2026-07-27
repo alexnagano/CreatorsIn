@@ -36,76 +36,334 @@ if(localStorage.getItem('creatorsin-light-default-v2')!=='done'){
 }
 setTheme(localStorage.getItem('creatorsin-theme-choice')||localStorage.getItem('cin_theme')||'light');
 
-function setAuthMode(mode){authMode=mode;$$('[data-auth]').forEach(b=>b.classList.toggle('active',b.dataset.auth===mode));$('#authTitle').textContent=mode==='signup'?'Create your account':'Welcome back';$('#emailBtn').textContent=mode==='signup'?'Create account':'Log in';$('#nameInput').classList.toggle('hidden',mode==='login');$('#typeInput').classList.toggle('hidden',mode==='login');$('#authMsg').textContent=''}
-$$('[data-auth]').forEach(b=>b.onclick=()=>setAuthMode(b.dataset.auth));
-async function oauth(provider){const {error}=await sb.auth.signInWithOAuth({provider,options:{redirectTo:cfg.SITE_URL||location.origin}});if(error)$('#authMsg').textContent=error.message}
-$('#googleBtn').onclick=()=>oauth('google');$('#appleBtn').onclick=()=>oauth('apple');
-$('#emailBtn').onclick=async()=>{
-  const button=$('#emailBtn');
-  const email=$('#emailInput').value.trim();
-  const password=$('#passwordInput').value;
-  const name=$('#nameInput').value.trim();
-  const account_type=$('#typeInput').value;
-  $('#authMsg').textContent='';
+function authRedirectUrl(){
+  const configured=String(cfg.SITE_URL||'').trim();
+  const base=configured||location.origin;
+  return `${base.replace(/\/+$/,'')}/`
+}
 
-  if(!email)return $('#authMsg').textContent='Enter your email address.';
-  if(password.length<8)return $('#authMsg').textContent='Password must be at least 8 characters.';
-  if(authMode==='signup'&&!name)return $('#authMsg').textContent='Enter your full name.';
+function selectedAccountType(){
+  const value=$('#typeInput')?.value||'creator';
+  return ['creator','brand','agency'].includes(value)?value:'creator'
+}
 
-  const original=button.textContent;
-  button.disabled=true;
-  button.classList.add('button-loading');
-  button.textContent=authMode==='signup'?'Creating account…':'Logging in…';
+function setAuthMode(mode){
+  authMode=mode==='login'?'login':'signup';
+
+  $$('[data-auth]').forEach(button=>{
+    const active=button.dataset.auth===authMode;
+    button.classList.toggle('active',active);
+    button.setAttribute('aria-selected',String(active))
+  });
+
+  $('#authTitle').textContent=authMode==='signup'?'Create your account':'Welcome back';
+  $('#emailBtn').textContent=authMode==='signup'?'Create account':'Log in';
+  $('#nameInput').classList.toggle('hidden',authMode==='login');
+  $('#typeInput').classList.toggle('hidden',authMode==='login');
+  $('#passwordInput').autocomplete=authMode==='signup'?'new-password':'current-password';
+  $('#forgotPasswordBtn')?.classList.toggle('hidden',authMode!=='login');
+  showAuthMessage('')
+}
+
+function showAuthMessage(message,type='error'){
+  const element=$('#authMsg');
+  if(!element)return;
+  element.textContent=message;
+  element.dataset.type=type
+}
+
+function setAuthBusy(button,busy,label=''){
+  if(!button)return;
+  if(busy){
+    button.dataset.originalText=button.textContent;
+    button.disabled=true;
+    button.classList.add('button-loading');
+    if(label)button.textContent=label
+  }else{
+    button.disabled=false;
+    button.classList.remove('button-loading');
+    if(button.dataset.originalText){
+      button.textContent=button.dataset.originalText;
+      delete button.dataset.originalText
+    }
+  }
+}
+
+function validateAuthConfiguration(){
+  if(!window.supabase?.createClient){
+    showAuthMessage('The sign-in service did not load. Refresh the page or disable content blockers for this site.');
+    return false
+  }
+
+  if(!cfg.SUPABASE_URL||!cfg.SUPABASE_ANON_KEY){
+    showAuthMessage('Sign in is temporarily unavailable because the site connection is incomplete.');
+    console.error('CreatorsIn auth configuration is missing SUPABASE_URL or SUPABASE_ANON_KEY.');
+    return false
+  }
+
+  if(!/^https:\/\/.+\.supabase\.co\/?$/i.test(cfg.SUPABASE_URL)){
+    showAuthMessage('Sign in is temporarily unavailable because the Supabase URL is invalid.');
+    console.error('CreatorsIn SUPABASE_URL is invalid:',cfg.SUPABASE_URL);
+    return false
+  }
+
+  return true
+}
+
+function friendlyAuthError(error,action='sign in'){
+  const message=error?.message||String(error||'');
+  console.error(`CreatorsIn ${action} error:`,error);
+
+  if(/provider is not enabled|unsupported provider/i.test(message)){
+    return 'This sign-in option has not been enabled in Supabase yet.'
+  }
+  if(/redirect.*not allowed|redirect.*mismatch|bad oauth state/i.test(message)){
+    return 'The sign-in redirect URL is not configured correctly yet.'
+  }
+  if(/database error saving new user/i.test(message)){
+    return 'The account database needs the included repair before new users can join.'
+  }
+  if(/user already registered|already been registered/i.test(message)){
+    return 'An account already exists for this email. Choose Log in instead.'
+  }
+  if(/invalid login credentials/i.test(message)){
+    return 'The email or password is incorrect, or this account uses Google or Apple sign-in.'
+  }
+  if(/email not confirmed/i.test(message)){
+    return 'Confirm your email first, then return and log in.'
+  }
+  if(/email rate limit|rate limit/i.test(message)){
+    return 'Too many attempts were made. Wait a few minutes and try again.'
+  }
+  if(/failed to fetch|network|load failed/i.test(message)){
+    return 'The browser could not reach Supabase. Check your connection and disable content blockers for this site.'
+  }
+
+  return message||`Unable to ${action}. Please try again.`
+}
+
+async function oauth(provider){
+  if(!validateAuthConfiguration())return;
+
+  const button=provider==='google'?$('#googleBtn'):$('#appleBtn');
+  const providerName=provider==='google'?'Google':'Apple';
+  showAuthMessage('');
+  setAuthBusy(button,true,`Connecting to ${providerName}…`);
 
   try{
-    const result=authMode==='signup'
-      ?await sb.auth.signUp({
-          email,
-          password,
-          options:{
-            data:{full_name:name,account_type},
-            emailRedirectTo:cfg.SITE_URL||location.origin
-          }
-        })
-      :await sb.auth.signInWithPassword({email,password});
+    if(authMode==='signup'){
+      localStorage.setItem('creatorsin-pending-account-type',selectedAccountType())
+    }else{
+      localStorage.removeItem('creatorsin-pending-account-type')
+    }
 
-    if(result.error){
-      $('#authMsg').textContent=result.error.message;
-      return
+    localStorage.setItem('creatorsin-oauth-provider',provider);
+
+    const {data,error}=await sb.auth.signInWithOAuth({
+      provider,
+      options:{
+        redirectTo:authRedirectUrl(),
+        skipBrowserRedirect:false,
+        queryParams:provider==='google'
+          ?{access_type:'offline',prompt:'select_account'}
+          :undefined
+      }
+    });
+
+    if(error)throw error;
+    if(!data?.url)throw new Error(`${providerName} did not return a sign-in URL.`)
+  }catch(error){
+    showAuthMessage(friendlyAuthError(error,`${providerName} sign in`));
+    localStorage.removeItem('creatorsin-oauth-provider');
+    setAuthBusy(button,false)
+  }
+}
+
+async function submitAuth(event){
+  event?.preventDefault();
+
+  const button=$('#emailBtn');
+  const email=$('#emailInput').value.trim().toLowerCase();
+  const password=$('#passwordInput').value;
+  const name=$('#nameInput').value.trim();
+  const account_type=selectedAccountType();
+
+  showAuthMessage('');
+
+  if(!validateAuthConfiguration())return;
+  if(!email)return showAuthMessage('Enter your email address.');
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return showAuthMessage('Enter a valid email address.');
+  if(password.length<8)return showAuthMessage('Password must be at least 8 characters.');
+  if(authMode==='signup'&&!name)return showAuthMessage('Enter your full name.');
+
+  setAuthBusy(button,true,authMode==='signup'?'Creating account…':'Logging in…');
+
+  try{
+    let result;
+
+    if(authMode==='signup'){
+      result=await sb.auth.signUp({
+        email,
+        password,
+        options:{
+          data:{full_name:name,account_type},
+          emailRedirectTo:authRedirectUrl()
+        }
+      })
+    }else{
+      result=await sb.auth.signInWithPassword({email,password})
+    }
+
+    if(result.error)throw result.error;
+
+    if(authMode==='signup'&&!result.data?.user){
+      throw new Error('Supabase did not create the account.')
     }
 
     if(!result.data.session){
-      $('#authMsg').textContent='Check your email to confirm your account, then return and log in.';
+      showAuthMessage('Account created. Check your email to confirm it, then return and log in.','success');
       return
     }
 
-    $('#authMsg').textContent='Success. Loading your account…';
+    showAuthMessage('Success. Loading your account…','success');
     await init()
   }catch(error){
-    $('#authMsg').textContent=error?.message||'Something went wrong. Please try again.';
+    showAuthMessage(friendlyAuthError(error,authMode==='signup'?'create account':'log in'))
   }finally{
-    button.disabled=false;
-    button.classList.remove('button-loading');
-    button.textContent=original
+    setAuthBusy(button,false)
   }
-};
+}
 
-['emailInput','passwordInput','nameInput'].forEach(id=>{
-  $('#'+id)?.addEventListener('keydown',event=>{
-    if(event.key==='Enter'){
-      event.preventDefault();
-      $('#emailBtn')?.click()
+async function sendPasswordReset(){
+  if(!validateAuthConfiguration())return;
+
+  const email=$('#emailInput').value.trim().toLowerCase();
+  if(!email||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){
+    return showAuthMessage('Enter your email address first.')
+  }
+
+  const button=$('#forgotPasswordBtn');
+  setAuthBusy(button,true,'Sending reset link…');
+  showAuthMessage('');
+
+  try{
+    const {error}=await sb.auth.resetPasswordForEmail(email,{
+      redirectTo:authRedirectUrl()
+    });
+    if(error)throw error;
+    showAuthMessage('Password reset email sent. Open the link in that email to choose a new password.','success')
+  }catch(error){
+    showAuthMessage(friendlyAuthError(error,'send password reset'))
+  }finally{
+    setAuthBusy(button,false)
+  }
+}
+
+async function completeOAuthProfile(session){
+  if(!session?.user)return;
+
+  const pendingType=localStorage.getItem('creatorsin-pending-account-type');
+  const provider=localStorage.getItem('creatorsin-oauth-provider');
+  const metadata=session.user.user_metadata||{};
+
+  if(pendingType&&['creator','brand','agency'].includes(pendingType)){
+    const nextMetadata={...metadata,account_type:pendingType};
+    const {error}=await sb.auth.updateUser({data:nextMetadata});
+    if(error)console.error('Could not save OAuth account type:',error)
+  }
+
+  localStorage.removeItem('creatorsin-pending-account-type');
+  localStorage.removeItem('creatorsin-oauth-provider');
+
+  if(provider==='apple'&&!metadata.full_name&&!metadata.name){
+    sessionStorage.setItem('creatorsin-needs-name','true')
+  }
+}
+
+async function openPasswordRecovery(){
+  modal('Choose a new password',`
+    <form id="passwordRecoveryForm">
+      <label>New password</label>
+      <input class="field" id="newPasswordInput" type="password" autocomplete="new-password" placeholder="At least 8 characters" required>
+      <label>Confirm password</label>
+      <input class="field" id="confirmPasswordInput" type="password" autocomplete="new-password" placeholder="Enter it again" required>
+      <button class="primary" id="saveNewPasswordBtn" type="submit">Update password</button>
+      <div class="auth-msg" id="passwordRecoveryMsg" role="status" aria-live="polite"></div>
+    </form>
+  `);
+
+  $('#passwordRecoveryForm').onsubmit=async event=>{
+    event.preventDefault();
+    const password=$('#newPasswordInput').value;
+    const confirmation=$('#confirmPasswordInput').value;
+    const message=$('#passwordRecoveryMsg');
+    const button=$('#saveNewPasswordBtn');
+
+    if(password.length<8){
+      message.textContent='Password must be at least 8 characters.';
+      return
     }
-  })
+    if(password!==confirmation){
+      message.textContent='The passwords do not match.';
+      return
+    }
+
+    setAuthBusy(button,true,'Updating password…');
+
+    const {error}=await sb.auth.updateUser({password});
+    if(error){
+      message.textContent=friendlyAuthError(error,'update password');
+      setAuthBusy(button,false);
+      return
+    }
+
+    message.dataset.type='success';
+    message.textContent='Password updated successfully.';
+    setTimeout(()=>{
+      closeModal();
+      history.replaceState({},'',location.pathname)
+    },900)
+  }
+}
+
+$$('[data-auth]').forEach(button=>{
+  button.addEventListener('click',()=>setAuthMode(button.dataset.auth))
 });
 
+$('#googleBtn')?.addEventListener('click',()=>oauth('google'));
+$('#appleBtn')?.addEventListener('click',()=>oauth('apple'));
+$('#authForm')?.addEventListener('submit',submitAuth);
+$('#forgotPasswordBtn')?.addEventListener('click',sendPasswordReset);
+
+sb.auth.onAuthStateChange(async(event,session)=>{
+  if(event==='PASSWORD_RECOVERY'){
+    await openPasswordRecovery();
+    return
+  }
+
+  if(event==='SIGNED_IN'&&session?.user){
+    await completeOAuthProfile(session);
+    if(!user){
+      user=session.user;
+      await init()
+    }
+    return
+  }
+
+  if(event==='SIGNED_OUT'&&user)location.reload()
+});
+
+validateAuthConfiguration();
 
 async function ensureProfile(){
   if(!user?.id)throw new Error('No signed-in user was found.');
 
   const md=user.user_metadata||{};
   const fallbackName=(md.full_name||md.name||user.email?.split('@')[0]||'Creator').trim();
-  const fallbackType=['creator','brand','agency'].includes(md.account_type)?md.account_type:'creator';
+  const pendingType=localStorage.getItem('creatorsin-pending-account-type');
+  const fallbackType=['creator','brand','agency'].includes(pendingType)
+    ?pendingType
+    :(['creator','brand','agency'].includes(md.account_type)?md.account_type:'creator');
 
   let {data:existing,error:readError}=await sb
     .from('profiles')
@@ -2359,7 +2617,10 @@ async function init(){
     await refreshNotificationWidget();
     await refreshSideInboxCount();
 
-    if(needsOnboarding(profile))launchOnboarding();
+    if(sessionStorage.getItem('creatorsin-needs-name')==='true'){
+      sessionStorage.removeItem('creatorsin-needs-name');
+      launchOnboarding()
+    }else if(needsOnboarding(profile))launchOnboarding();
     else if(!(await routeFromLocation()))setPage('feed');
   }catch(error){
     console.error(error);
@@ -2370,7 +2631,6 @@ async function init(){
     if(activeConversation&&payload.new.conversation_id===activeConversation)openConversation(activeConversation);refreshNotificationWidget();refreshSideInboxCount()
   }).subscribe()
 }
-sb.auth.onAuthStateChange((_e,s)=>{if(s?.user&&!user){user=s.user;init()}else if(!s?.user&&user)location.reload()});
 init();
 })()
 function formatRelativeTime(value){
