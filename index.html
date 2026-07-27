@@ -1609,6 +1609,138 @@ body.guest-mode .side .identity{
   body.guest-mode .guest-only{padding:8px 11px}
 }
 
+
+/* Profile Header Consistency Fix V1
+   Keeps every public profile name readable and prevents action buttons
+   from squeezing the identity column into a few characters. */
+.creator-profile-top{
+  display:grid!important;
+  grid-template-columns:180px minmax(280px,1fr)!important;
+  grid-template-areas:
+    "photo identity"
+    "photo actions"!important;
+  column-gap:24px!important;
+  row-gap:14px!important;
+  align-items:start!important;
+  width:100%!important;
+}
+
+.creator-profile-photo{
+  grid-area:photo!important;
+  align-self:start!important;
+}
+
+.creator-identity{
+  grid-area:identity!important;
+  min-width:0!important;
+  width:100%!important;
+  padding-top:58px!important;
+  padding-bottom:0!important;
+}
+
+.creator-name-row{
+  display:flex!important;
+  align-items:center!important;
+  flex-wrap:wrap!important;
+  gap:8px!important;
+  min-width:0!important;
+  width:100%!important;
+}
+
+.creator-name-row h1,
+.creator-name{
+  display:block!important;
+  min-width:0!important;
+  max-width:100%!important;
+  width:auto!important;
+  margin:0!important;
+  font-size:32px!important;
+  line-height:1.12!important;
+  letter-spacing:-.02em!important;
+  font-weight:800!important;
+  white-space:normal!important;
+  word-break:normal!important;
+  overflow-wrap:break-word!important;
+  hyphens:none!important;
+}
+
+.creator-actions,
+.creator-header-actions{
+  grid-area:actions!important;
+  display:flex!important;
+  flex-wrap:wrap!important;
+  justify-content:flex-start!important;
+  align-items:center!important;
+  gap:10px!important;
+  min-width:0!important;
+  width:100%!important;
+  padding:0 0 8px!important;
+}
+
+.creator-actions button,
+.creator-header-actions button{
+  flex:0 0 auto!important;
+}
+
+@media(max-width:900px){
+  .creator-profile-top{
+    grid-template-columns:150px minmax(0,1fr)!important;
+  }
+
+  .creator-identity{
+    padding-top:48px!important;
+  }
+
+  .creator-name-row h1,
+  .creator-name{
+    font-size:30px!important;
+  }
+}
+
+@media(max-width:680px){
+  .creator-profile-top{
+    grid-template-columns:1fr!important;
+    grid-template-areas:
+      "photo"
+      "identity"
+      "actions"!important;
+    margin-top:-34px!important;
+    gap:12px!important;
+  }
+
+  .creator-profile-photo{
+    width:120px!important;
+    height:120px!important;
+  }
+
+  .creator-identity{
+    padding-top:0!important;
+  }
+
+  .creator-name-row h1,
+  .creator-name{
+    font-size:27px!important;
+  }
+
+  .creator-actions,
+  .creator-header-actions{
+    display:grid!important;
+    grid-template-columns:repeat(2,minmax(0,1fr))!important;
+  }
+
+  .creator-actions button,
+  .creator-header-actions button{
+    width:100%!important;
+  }
+}
+
+@media(max-width:430px){
+  .creator-actions,
+  .creator-header-actions{
+    grid-template-columns:1fr!important;
+  }
+}
+
 </style>
 </head>
 <body>
