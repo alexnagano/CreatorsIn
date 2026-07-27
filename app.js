@@ -65,6 +65,55 @@ function setAuthMode(mode){
   showAuthMessage('')
 }
 
+
+function isGuest(){
+  return !user
+}
+
+function openAuthScreen(mode='signup'){
+  setAuthMode(mode);
+  closeModal();
+  gate.classList.remove('hidden');
+  setTimeout(()=>{
+    const target=mode==='signup'?'#nameInput':'#emailInput';
+    $(target)?.focus()
+  },120)
+}
+
+function requireAccount(action='interact'){
+  if(user)return true;
+
+  const actionCopy={
+    post:'create a post',
+    comment:'comment',
+    repost:'repost content',
+    like:'like content',
+    follow:'follow creators',
+    message:'send messages',
+    apply:'apply to opportunities',
+    bookmark:'save posts',
+    create:'create content',
+    profile:'manage your profile'
+  };
+
+  modal('Join CreatorsIn',`
+    <div class="guest-auth-prompt">
+      <div class="guest-auth-icon">C</div>
+      <h2>Create an account to ${esc(actionCopy[action]||'continue')}</h2>
+      <p class="muted">Explore CreatorsIn freely. When you are ready to post, connect, apply, or join the conversation, create a free account.</p>
+      <button class="primary" id="guestSignupBtn">Create free account</button>
+      <button class="secondary" id="guestLoginBtn">Log in</button>
+    </div>
+  `);
+
+  setTimeout(()=>{
+    $('#guestSignupBtn').onclick=()=>openAuthScreen('signup');
+    $('#guestLoginBtn').onclick=()=>openAuthScreen('login')
+  },0);
+
+  return false
+}
+
 function showAuthMessage(message,type='error'){
   const element=$('#authMsg');
   if(!element)return;
@@ -334,6 +383,7 @@ $('#googleBtn')?.addEventListener('click',()=>oauth('google'));
 $('#appleBtn')?.addEventListener('click',()=>oauth('apple'));
 $('#authForm')?.addEventListener('submit',submitAuth);
 $('#forgotPasswordBtn')?.addEventListener('click',sendPasswordReset);
+$('#authBrowseClose')?.addEventListener('click',()=>gate.classList.add('hidden'));
 
 sb.auth.onAuthStateChange(async(event,session)=>{
   if(event==='PASSWORD_RECOVERY'){
@@ -421,12 +471,53 @@ async function ensureProfile(){
   profile=existing;
 }
 function syncIdentity(){if(!profile)return;$('#sideName').textContent=profile.full_name;$('#sideType').textContent=(profile.is_founder?'Founder · ':'')+(profile.account_type||'creator');$('#sideAvatar').src=profile.avatar_url||EMPTY}
-function setPage(page){
+function pageUrl(page){
+  const paths={
+    feed:'#/home',
+    discover:'#/discover',
+    opportunities:'#/opportunities',
+    messages:'#/inbox',
+    followingFeed:'#/following',
+    bookmarks:'#/bookmarks',
+    profile:'#/profile'
+  };
+  return paths[page]||'#/home'
+}
+
+function setPage(page,options={}){
+  const protectedPages=['messages','followingFeed','bookmarks','profile'];
+
+  if(isGuest()&&protectedPages.includes(page)){
+    const action=page==='messages'?'message':page==='followingFeed'?'follow':page==='bookmarks'?'bookmark':'profile';
+    requireAccount(action);
+    return
+  }
+
   $$('[data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===page));
-  const pages={feed,discover,messages:messagesPage,opportunities:opportunitiesPage,followingFeed:followingFeedPage,bookmarks:bookmarksPage,profile:profilePage};
+
+  const pages={
+    feed,
+    discover,
+    messages:messagesPage,
+    opportunities:opportunitiesPage,
+    followingFeed:followingFeedPage,
+    bookmarks:bookmarksPage,
+    profile:profilePage
+  };
+
   const handler=pages[page];
-  if(typeof handler==='function')return handler();
-  main.innerHTML=`<section class="card empty"><h2>Page unavailable</h2><p class="muted">This section could not load. Return Home and try again.</p><button class="primary" data-page="feed">Return Home</button></section>`
+  if(typeof handler!=='function'){
+    main.innerHTML=`<section class="card empty"><h2>Page unavailable</h2><p class="muted">This section could not load. Return Home and try again.</p><button class="primary" data-page="feed">Return Home</button></section>`;
+    return
+  }
+
+  if(!options.skipHistory){
+    const url=pageUrl(page);
+    if(options.replace)history.replaceState({page},'',url);
+    else if(location.hash!==url)history.pushState({page},'',url)
+  }
+
+  return handler()
 }
 $$('[data-page]').forEach(b=>b.onclick=()=>setPage(b.dataset.page));
 
@@ -458,6 +549,7 @@ async function loadTimeline(filter='for-you'){
   const opportunities=jobError?[]:(jobs||[]).map(x=>({...x,kind:'job'}));
   let items=[...social,...opportunities].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
   if(filter==='following'){
+    if(!user)return [];
     const followedIds=follows.map(f=>f.following_id);
     items=items.filter(x=>{
       const ownerId=x.kind==='post'?x.user_id:x.business_id;
@@ -608,9 +700,15 @@ async function renderModernHomeSidebar(){
 async function feed(){
   await loadSocial();
   main.innerHTML=`<div class="social-shell">
-    <div class="feed-tabs"><button class="active" data-feed-filter="for-you">For you</button><button data-feed-filter="following">My network</button></div>
-    <section class="card social-composer">
-      <div class="composer-main"><img class="avatar" src="${esc(profile.avatar_url||EMPTY)}"><div class="mention-wrap"><textarea id="postText" maxlength="5000" placeholder="What’s happening in the creator world? Type @ to tag someone."></textarea><div class="mention-chips hidden" id="mentionChips"></div><div class="mention-menu hidden" id="mentionMenu"></div></div></div>
+    <div class="feed-tabs"><button class="active" data-feed-filter="for-you">For you</button><button data-feed-filter="following">${user?'My network':'Following'}</button></div>
+    ${user?`<section class="card social-composer">`:`<section class="card guest-composer" id="guestComposer">
+      <div>
+        <strong>Share what is happening in your creator journey</strong>
+        <p class="muted">Explore freely. Create an account when you are ready to post or join the conversation.</p>
+      </div>
+      <button class="primary" id="guestComposerBtn">Create a post</button>
+    </section><section class="card social-composer hidden">`}
+      <div class="composer-main"><img class="avatar" src="${esc(profile?.avatar_url||EMPTY)}"><div class="mention-wrap"><textarea id="postText" maxlength="5000" placeholder="What’s happening in the creator world? Type @ to tag someone."></textarea><div class="mention-chips hidden" id="mentionChips"></div><div class="mention-menu hidden" id="mentionMenu"></div></div></div>
       <div class="link-box hidden" id="linkBox"><input class="field" id="postLink" placeholder="https://example.com"><button class="secondary" id="removeLinkBtn">Remove</button></div>
       <div class="media-preview hidden" id="mediaPreview"></div>
       <div class="upload-progress" id="uploadStatus"></div>
@@ -619,13 +717,24 @@ async function feed(){
         <input class="hidden" id="postMediaInput" type="file" accept="image/*,video/*">
         <button class="tool-btn" id="addLinkBtn">↗ Link</button>
         <button class="tool-btn" id="tagHelpBtn">@ Tag</button>
-        ${['brand','agency'].includes(profile.account_type)?'<button class="tool-btn" id="shareOpportunityBtn">▣ Job posting</button>':''}
+        ${profile&&['brand','agency'].includes(profile.account_type)?'<button class="tool-btn" id="shareOpportunityBtn">▣ Job posting</button>':''}
         <button class="primary" id="postBtn">Post</button>
       </div>
     </section>
     <div class="feed" id="feedList"></div>
   </div>`;
   let selectedFile=null,currentFilter='for-you';
+  $('#guestComposerBtn')?.addEventListener('click',()=>requireAccount('post'));
+  if(!user){
+    $$('[data-feed-filter]').forEach(b=>b.onclick=()=>{
+      if(b.dataset.feedFilter==='following')return requireAccount('follow');
+      $$('[data-feed-filter]').forEach(x=>x.classList.toggle('active',x===b));
+      currentFilter=b.dataset.feedFilter;
+      renderTimeline(currentFilter)
+    });
+    renderTimeline(currentFilter);
+    return
+  }
   setupMentionAutocomplete($('#postText'),$('#mentionMenu'));
   const mediaInput=$('#postMediaInput'),preview=$('#mediaPreview');
   mediaInput.onchange=e=>{
@@ -679,12 +788,12 @@ function renderSocialPost(p,likes=[],comments=[],reposts=[],options={}){
   const postLikes=likes.filter(x=>x.post_id===p.id);
   const postComments=comments.filter(x=>x.post_id===p.id);
   const postReposts=reposts.filter(x=>x.post_id===p.id);
-  const liked=postLikes.some(x=>x.user_id===user.id);
-  const reposted=postReposts.some(x=>x.user_id===user.id);
+  const liked=!!user&&postLikes.some(x=>x.user_id===user.id);
+  const reposted=!!user&&postReposts.some(x=>x.user_id===user.id);
   const engagement=postLikes.length+postComments.length+(postReposts.length*2);
   return `<article class="card social-post">
     ${options.trending?`<div class="repost-context"><span class="engagement-label">🔥 ${engagement} engagement points</span>${options.rank?`<span>Trending #${options.rank}</span>`:''}</div>`:''}
-    <div class="social-post-header"><img class="avatar" src="${esc(p.profiles?.avatar_url||EMPTY)}"><div style="flex:1"><button class="profile-link" data-profile-id="${p.user_id}"><strong>${esc(p.profiles?.full_name||'Member')} ${p.profiles?.is_verified?'<span class="verified">✓</span>':''}${p.profiles?.is_founder?'<span class="badge">Founder</span>':''}</strong></button><div class="muted">@${esc(p.profiles?.username||'member')} · ${formatRelativeTime(p.created_at)}</div></div><div style="display:flex;gap:6px;align-items:center">${options.showPin?(options.pinned?`<button class="secondary pin-control" data-unpin-profile-post="${p.id}">Pinned</button>`:`<button class="secondary pin-control" data-pin-profile-post="${p.id}">Pin</button>`):''}${p.user_id===user.id?`<button class="secondary danger" data-delete-post="${p.id}">Delete</button>`:''}</div></div>
+    <div class="social-post-header"><img class="avatar" src="${esc(p.profiles?.avatar_url||EMPTY)}"><div style="flex:1"><button class="profile-link" data-profile-id="${p.user_id}"><strong>${esc(p.profiles?.full_name||'Member')} ${p.profiles?.is_verified?'<span class="verified">✓</span>':''}${p.profiles?.is_founder?'<span class="badge">Founder</span>':''}</strong></button><div class="muted">@${esc(p.profiles?.username||'member')} · ${formatRelativeTime(p.created_at)}</div></div><div style="display:flex;gap:6px;align-items:center">${options.showPin?(options.pinned?`<button class="secondary pin-control" data-unpin-profile-post="${p.id}">Pinned</button>`:`<button class="secondary pin-control" data-pin-profile-post="${p.id}">Pin</button>`):''}${user&&p.user_id===user.id?`<button class="secondary danger" data-delete-post="${p.id}">Delete</button>`:''}</div></div>
     <div class="social-post-body">${p.content?`<p>${renderPostText(p.content)}</p>`:''}${p.link_url?`<a class="post-link" href="${esc(p.link_url)}" target="_blank" rel="noopener"><strong>Open link ↗</strong><br>${esc(p.link_url)}</a>`:''}</div>
     ${p.media_url?(p.media_type==='video'?`<video class="post-media" controls preload="metadata" src="${esc(p.media_url)}"></video>`:`<img class="post-media" loading="lazy" src="${esc(p.media_url)}" alt="Post media">`):''}
     <div class="post-actions">
@@ -722,6 +831,7 @@ function refreshPostSurface(){
 }
 function bindFeedActions(){
   $$('[data-like]').forEach(b=>b.onclick=async()=>{
+    if(!requireAccount('like'))return;
     const post_id=b.dataset.like;
     const {data}=await sb.from('post_likes').select('post_id').eq('post_id',post_id).eq('user_id',user.id).maybeSingle();
     const {error}=data
@@ -730,8 +840,9 @@ function bindFeedActions(){
     if(error)return showToast(error.message);
     refreshPostSurface()
   });
-  $$('[data-toggle-comments]').forEach(b=>b.onclick=()=>$('#comments-'+b.dataset.toggleComments).classList.toggle('hidden'));
+  $$('[data-toggle-comments]').forEach(b=>b.onclick=()=>{if(!user)return requireAccount('comment');$('#comments-'+b.dataset.toggleComments).classList.toggle('hidden')});
   $$('[data-comment]').forEach(b=>b.onclick=async()=>{
+    if(!requireAccount('comment'))return;
     const post_id=b.dataset.comment,input=$('#comment-input-'+post_id),content=input.value.trim();
     if(!content)return;
     const {error}=await sb.from('post_comments').insert({post_id,user_id:user.id,content});
@@ -739,6 +850,7 @@ function bindFeedActions(){
     refreshPostSurface()
   });
   $$('[data-repost]').forEach(b=>b.onclick=async()=>{
+    if(!requireAccount('repost'))return;
     const post_id=b.dataset.repost;
     const {data}=await sb.from('post_reposts').select('post_id').eq('post_id',post_id).eq('user_id',user.id).maybeSingle();
     const {error}=data
@@ -749,12 +861,32 @@ function bindFeedActions(){
     refreshPostSurface()
   });
   $$('[data-copy-post]').forEach(b=>b.onclick=async()=>{await navigator.clipboard.writeText(`${location.origin}/?post=${b.dataset.copyPost}`);showToast('Post link copied')});
-  $$('[data-message-author]').forEach(b=>b.onclick=()=>startConversation(b.dataset.messageAuthor));
+  $$('[data-message-author]').forEach(b=>b.onclick=()=>{if(!requireAccount('message'))return;startConversation(b.dataset.messageAuthor)});
   $$('[data-delete-post]').forEach(b=>b.onclick=async()=>{const {error}=await sb.from('posts').delete().eq('id',b.dataset.deletePost).eq('user_id',user.id);if(error)return showToast(error.message);showToast('Post deleted');refreshPostSurface()});
   $$('[data-open-opportunity]').forEach(b=>b.onclick=()=>setPage('opportunities'));
 }
 
-async function loadSocial(){const [{data:m},{data:c},{data:r},{data:f}]=await Promise.all([sb.from('profiles').select('*').neq('id',user.id).order('created_at',{ascending:false}),sb.from('connections').select('*').or(`requester_id.eq.${user.id},addressee_id.eq.${user.id}`),sb.from('connections').select('*,profiles!connections_requester_id_fkey(*)').eq('addressee_id',user.id).eq('status','pending'),sb.from('follows').select('*').eq('follower_id',user.id)]);members=m||[];connections=c||[];requests=r||[];follows=f||[];}
+async function loadSocial(){
+  if(!user){
+    const {data:m}=await sb.from('profiles').select('*').order('created_at',{ascending:false});
+    members=m||[];
+    connections=[];
+    requests=[];
+    follows=[];
+    return
+  }
+
+  const [{data:m},{data:c},{data:r},{data:f}]=await Promise.all([
+    sb.from('profiles').select('*').neq('id',user.id).order('created_at',{ascending:false}),
+    sb.from('connections').select('*').or(`requester_id.eq.${user.id},addressee_id.eq.${user.id}`),
+    sb.from('connections').select('*,profiles!connections_requester_id_fkey(*)').eq('addressee_id',user.id).eq('status','pending'),
+    sb.from('follows').select('*').eq('follower_id',user.id)
+  ]);
+  members=m||[];
+  connections=c||[];
+  requests=r||[];
+  follows=f||[]
+}
 function relationship(id){const c=connections.find(x=>(x.requester_id===user.id&&x.addressee_id===id)||(x.addressee_id===user.id&&x.requester_id===id));if(!c)return null;return c}
 function recommendationScore(member){
   let score=0;
@@ -1852,13 +1984,13 @@ async function deleteChatForMe(id){
 }
 
 async function opportunitiesPage(){
-  const isBrand=profile.account_type==='brand';
+  const isBrand=profile?.account_type==='brand';
   const {data:opps,error}=await sb.from('opportunities')
     .select('*,profiles!opportunities_business_id_fkey(full_name,avatar_url,is_verified,account_type)')
     .eq('status','open').order('created_at',{ascending:false});
   if(error){main.innerHTML=`<section class="card empty"><h2>Could not load opportunities</h2><p class="muted">${esc(error.message)}</p></section>`;return}
   let myApplications=[];
-  if(!isBrand){
+  if(user&&!isBrand){
     const {data}=await sb.from('applications').select('opportunity_id,status').eq('applicant_id',user.id);
     myApplications=data||[];
   }
@@ -1902,7 +2034,7 @@ async function opportunitiesPage(){
       ${o.requirements?`<p><strong>Requirements:</strong> ${esc(o.requirements)}</p>`:''}
       ${o.deadline?`<div class="muted">Apply by ${new Date(o.deadline).toLocaleDateString()}</div>`:''}
       <div class="opportunity-footer">
-        ${o.business_id===user.id?`<button class="secondary" data-view-applicants="${o.id}">View applicants</button><button class="secondary danger" data-close-opportunity="${o.id}">Close</button>`:
+        ${user&&o.business_id===user.id?`<button class="secondary" data-view-applicants="${o.id}">View applicants</button><button class="secondary danger" data-close-opportunity="${o.id}">Close</button>`:
         isBrand?`<button class="secondary" data-profile-id="${o.business_id}">View brand</button>`:
         `<button class="secondary" data-profile-id="${o.business_id}">View brand</button>
          <button class="secondary" data-message-brand="${o.business_id}">Message brand</button>
@@ -1912,8 +2044,8 @@ async function opportunitiesPage(){
   }).join(''):`<section class="card empty"><h2>No opportunities yet</h2><p class="muted">${isBrand?'Post the first real opportunity for the community.':'Brands have not posted any opportunities yet.'}</p></section>`;
   if(isBrand)$('#createOpportunityBtn').onclick=openOpportunityForm;
   bindProfileLinks();
-  $$('[data-message-brand]').forEach(b=>b.onclick=()=>startConversation(b.dataset.messageBrand));
-  $$('[data-apply]').forEach(b=>b.onclick=()=>openApplicationForm(b.dataset.apply));
+  $$('[data-message-brand]').forEach(b=>b.onclick=()=>{if(!requireAccount('message'))return;startConversation(b.dataset.messageBrand)});
+  $$('[data-apply]').forEach(b=>b.onclick=()=>{if(!requireAccount('apply'))return;openApplicationForm(b.dataset.apply)});
   $$('[data-view-applicants]').forEach(b=>b.onclick=()=>viewApplicants(b.dataset.viewApplicants));
   $$('[data-close-opportunity]').forEach(b=>b.onclick=async()=>{const {error}=await sb.from('opportunities').update({status:'closed'}).eq('id',b.dataset.closeOpportunity).eq('business_id',user.id);if(error)showToast(error.message);else{showToast('Opportunity closed');opportunitiesPage()}})
 }
@@ -2345,42 +2477,50 @@ function bindProfileLinks(){
 }
 
 async function routeFromLocation(){
-  const hashMatch=location.hash.match(/^#\/profile\/(.+)$/);
-  let slug=hashMatch?.[1]?decodeURIComponent(hashMatch[1]):'';
+  const hash=location.hash||'#/home';
+  const profileMatch=hash.match(/^#\/profile\/(.+)$/);
 
-  // Support old profile links once, then convert them to safe hash URLs.
-  if(!slug){
-    const legacyPath=decodeURIComponent(location.pathname.replace(/^\/+|\/+$/g,''));
-    if(legacyPath && legacyPath!=='index.html')slug=legacyPath
+  if(profileMatch?.[1]){
+    const slug=decodeURIComponent(profileMatch[1]);
+    const {data,error}=await sb.from('profiles')
+      .select('id,username')
+      .eq('username',slug)
+      .maybeSingle();
+
+    if(!error&&data){
+      await openMemberProfile(data.id,{push:false});
+      return true
+    }
   }
 
-  if(!slug)return false;
+  // Support old direct profile links once.
+  const legacyPath=decodeURIComponent(location.pathname.replace(/^\/+|\/+$/g,''));
+  if(legacyPath&&legacyPath!=='index.html'){
+    const {data}=await sb.from('profiles').select('id,username').eq('username',legacyPath).maybeSingle();
+    if(data){
+      history.replaceState({profileId:data.id},'',`/#/profile/${encodeURIComponent(data.username)}`);
+      await openMemberProfile(data.id,{push:false});
+      return true
+    }
+  }
 
-  const {data,error}=await sb.from('profiles')
-    .select('id,username')
-    .eq('username',slug)
-    .maybeSingle();
+  const pageMap={
+    '#/home':'feed',
+    '#/discover':'discover',
+    '#/opportunities':'opportunities',
+    '#/inbox':'messages',
+    '#/following':'followingFeed',
+    '#/bookmarks':'bookmarks',
+    '#/profile':'profile'
+  };
 
-  if(error||!data)return false;
-
-  history.replaceState(
-    {profileId:data.id},
-    '',
-    `/#/profile/${encodeURIComponent(data.username)}`
-  );
-
-  await openMemberProfile(data.id,{push:false});
+  const page=pageMap[hash]||'feed';
+  setPage(page,{skipHistory:true});
   return true
 }
-window.addEventListener('popstate',async event=>{
-  if(event.state?.profileId)await openMemberProfile(event.state.profileId,{push:false});
-  else if(!(await routeFromLocation()))setPage('feed')
-});
 
-window.addEventListener('hashchange',async()=>{
-  if(!(await routeFromLocation()))setPage('feed')
-});
-
+window.addEventListener('popstate',()=>routeFromLocation());
+window.addEventListener('hashchange',()=>routeFromLocation());
 
 function publicPostText(text){
   return esc(text||'').replace(/(^|\s)@([A-Za-z0-9_.-]+)/g,'$1<span class="mention">@$2</span>').replace(/\n/g,'<br>');
@@ -2467,6 +2607,7 @@ function focusHomeComposer(mode='text'){
   },150)
 }
 function openCreateMenu(){
+  if(!requireAccount('create'))return;
   modal('Create',`<div class="create-choice-grid">
     <button class="create-choice" data-create-mode="text"><span class="create-choice-icon">✎</span><span><strong>Write a post</strong><br><span class="muted">Share a thought, update, link, or opportunity.</span></span></button>
     <button class="create-choice" data-create-mode="camera"><span class="create-choice-icon">◉</span><span><strong>Take a photo</strong><br><span class="muted">Open your phone or device camera.</span></span></button>
@@ -2492,6 +2633,8 @@ async function refreshSideInboxCount(){
 
 function installLaunchControls(){
   $('#sideCreateBtn')?.addEventListener('click',openCreateMenu);
+  $('#guestHeaderSignup')?.addEventListener('click',()=>openAuthScreen('signup'));
+  $('#guestHeaderLogin')?.addEventListener('click',()=>openAuthScreen('login'));
   $('#sideCreatePostBtn')?.addEventListener('click',openCreateMenu);
   $('#sideMoreBtn')?.addEventListener('click',event=>{event.stopPropagation();toggleSideMoreMenu()});
   $('#sideSettingsBtn')?.addEventListener('click',()=>{toggleSideMoreMenu(false);openSettings()});
@@ -2600,9 +2743,22 @@ async function init(){
   const {data}=await sb.auth.getSession();
   if(!data.session){
     user=null;
-    await renderPublicHome();
+    profile=null;
+    gate.classList.add('hidden');
+    document.querySelector('header')?.classList.remove('hidden');
+    document.querySelector('.layout')?.classList.remove('hidden');
+    document.body.classList.add('guest-mode');
+
+    $('#sideName').textContent='Explore CreatorsIn';
+    $('#sideType').textContent='Guest';
+    $('#sideAvatar').src=EMPTY;
+
+    await loadSocial();
+    if(!(await routeFromLocation()))setPage('feed',{replace:true});
     return
   }
+
+  document.body.classList.remove('guest-mode');
   user=data.session.user;
   gate.classList.add('hidden');
   document.querySelector('header')?.classList.remove('hidden');
