@@ -2051,6 +2051,64 @@ body.guest-mode .side .identity{
   }
 }
 
+
+/* FINAL LOGO VISIBILITY FIX
+   Overrides the older global rule: header button { display:none!important; } */
+header.brand-header{
+  display:flex!important;
+  align-items:center!important;
+  justify-content:flex-start!important;
+}
+
+header.brand-header > .home-logo-button{
+  display:inline-flex!important;
+  visibility:visible!important;
+  opacity:1!important;
+  width:205px!important;
+  min-width:205px!important;
+  height:58px!important;
+  padding:0!important;
+  margin:0!important;
+  border:0!important;
+  background:transparent!important;
+  overflow:visible!important;
+  cursor:pointer!important;
+}
+
+header.brand-header > .home-logo-button > img.logo{
+  display:block!important;
+  visibility:visible!important;
+  opacity:1!important;
+  width:205px!important;
+  min-width:205px!important;
+  max-width:205px!important;
+  height:auto!important;
+  max-height:58px!important;
+  object-fit:contain!important;
+  object-position:left center!important;
+}
+
+.public-topbar .public-home-logo{
+  display:inline-flex!important;
+  visibility:visible!important;
+  opacity:1!important;
+}
+
+@media(max-width:760px){
+  header.brand-header > .home-logo-button{
+    width:155px!important;
+    min-width:155px!important;
+    height:48px!important;
+  }
+
+  header.brand-header > .home-logo-button > img.logo{
+    width:155px!important;
+    min-width:155px!important;
+    max-width:155px!important;
+    max-height:48px!important;
+  }
+}
+
 </style>
 </head>
 <body>
