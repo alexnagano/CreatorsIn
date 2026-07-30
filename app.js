@@ -517,7 +517,9 @@ function setPage(page,options={}){
     else if(location.hash!==url)history.pushState({page},'',url)
   }
 
-  return handler()
+  const result=handler();
+  Promise.resolve(result).then(()=>hydrateVideoEmbeds(main)).catch(()=>{});
+  return result
 }
 $$('[data-page]').forEach(b=>b.onclick=()=>setPage(b.dataset.page));
 
@@ -708,6 +710,132 @@ async function renderModernHomeSidebar(){
   bindProfileLinks()
 }
 
+
+function videoProvider(url){
+  try{
+    const u=new URL(validHttpUrl(url));
+    const host=u.hostname.replace(/^www\./,'').toLowerCase();
+    if(host==='youtu.be'||host.endsWith('youtube.com'))return 'youtube';
+    if(host.endsWith('tiktok.com'))return 'tiktok';
+    if(host.endsWith('vimeo.com'))return 'vimeo';
+    if(/\.(mp4|webm|ogg|mov)$/i.test(u.pathname))return 'direct';
+    return null
+  }catch{return null}
+}
+
+function youtubeVideoId(url){
+  try{
+    const u=new URL(validHttpUrl(url));
+    const host=u.hostname.replace(/^www\./,'').toLowerCase();
+    if(host==='youtu.be')return u.pathname.split('/').filter(Boolean)[0]||null;
+    if(u.pathname.startsWith('/shorts/'))return u.pathname.split('/')[2]||null;
+    if(u.pathname.startsWith('/embed/'))return u.pathname.split('/')[2]||null;
+    return u.searchParams.get('v')
+  }catch{return null}
+}
+
+function vimeoVideoId(url){
+  try{
+    const u=new URL(validHttpUrl(url));
+    return u.pathname.split('/').filter(Boolean).find(part=>/^\d+$/.test(part))||null
+  }catch{return null}
+}
+
+function linkFallback(url){
+  const safe=validHttpUrl(url);
+  if(!safe)return '';
+  return `<a class="post-link post-link-fallback" href="${esc(safe)}" target="_blank" rel="noopener noreferrer">
+    <strong>Open link ↗</strong><br>${esc(url)}
+  </a>`
+}
+
+function renderLinkAttachment(url){
+  const safe=validHttpUrl(url);
+  if(!safe)return '';
+  const provider=videoProvider(safe);
+
+  if(provider==='youtube'){
+    const id=youtubeVideoId(safe);
+    if(id)return `<div class="inline-video-card">
+      <div class="inline-video-frame">
+        <iframe src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(id)}?playsinline=1"
+          title="YouTube video player" loading="lazy"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          allowfullscreen></iframe>
+      </div>
+      <a class="inline-video-source" href="${esc(safe)}" target="_blank" rel="noopener noreferrer">Watch on YouTube ↗</a>
+    </div>`
+  }
+
+  if(provider==='vimeo'){
+    const id=vimeoVideoId(safe);
+    if(id)return `<div class="inline-video-card">
+      <div class="inline-video-frame">
+        <iframe src="https://player.vimeo.com/video/${encodeURIComponent(id)}"
+          title="Vimeo video player" loading="lazy"
+          allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe>
+      </div>
+      <a class="inline-video-source" href="${esc(safe)}" target="_blank" rel="noopener noreferrer">Watch on Vimeo ↗</a>
+    </div>`
+  }
+
+  if(provider==='direct'){
+    return `<div class="inline-video-card">
+      <video class="inline-direct-video" controls playsinline preload="metadata">
+        <source src="${esc(safe)}">
+      </video>
+      <a class="inline-video-source" href="${esc(safe)}" target="_blank" rel="noopener noreferrer">Open video ↗</a>
+    </div>`
+  }
+
+  if(provider==='tiktok'){
+    return `<div class="inline-video-card inline-video-loading" data-video-embed="${esc(safe)}">
+      <div class="inline-video-skeleton">
+        <div class="inline-video-spinner"></div>
+        <span>Loading TikTok video…</span>
+      </div>
+    </div>`
+  }
+
+  return linkFallback(safe)
+}
+
+async function hydrateVideoEmbeds(root=document){
+  const cards=[...root.querySelectorAll('[data-video-embed]:not([data-embed-loaded])')];
+
+  await Promise.all(cards.map(async card=>{
+    card.dataset.embedLoaded='true';
+    const url=card.dataset.videoEmbed;
+
+    try{
+      const response=await fetch(`/api/video-embed?url=${encodeURIComponent(url)}`,{
+        headers:{accept:'application/json'}
+      });
+      if(!response.ok)throw new Error(`Embed service returned ${response.status}`);
+
+      const data=await response.json();
+      if(!data?.embedUrl)throw new Error('No playable video was returned');
+
+      card.classList.remove('inline-video-loading');
+      card.innerHTML=`
+        <div class="inline-video-frame inline-video-vertical">
+          <iframe src="${esc(data.embedUrl)}"
+            title="${esc(data.title||'TikTok video player')}"
+            loading="lazy"
+            allow="accelerometer; autoplay; encrypted-media; picture-in-picture; fullscreen"
+            allowfullscreen></iframe>
+        </div>
+        <a class="inline-video-source" href="${esc(data.canonicalUrl||url)}" target="_blank" rel="noopener noreferrer">
+          Watch on TikTok ↗
+        </a>`;
+    }catch(error){
+      console.error('Could not load video embed:',error);
+      card.classList.remove('inline-video-loading');
+      card.innerHTML=linkFallback(url)
+    }
+  }))
+}
+
 async function feed(){
   await loadSocial();
   main.innerHTML=`<div class="social-shell">
@@ -792,7 +920,7 @@ async function renderTimeline(filter){
       ]);likes=l||[];comments=c||[];reposts=r||[];
     }
     list.innerHTML=items.map(item=>item.kind==='job'?renderJobFeedItem(item):renderSocialPost(item,likes,comments,reposts)).join('');
-    bindFeedActions();bindProfileLinks();
+    bindFeedActions();bindProfileLinks();hydrateVideoEmbeds(list);
   }catch(e){list.innerHTML=`<section class="card empty"><h2>Could not load the feed</h2><p class="muted">${esc(e.message)}</p></section>`}
 }
 function renderSocialPost(p,likes=[],comments=[],reposts=[],options={}){
@@ -805,7 +933,7 @@ function renderSocialPost(p,likes=[],comments=[],reposts=[],options={}){
   return `<article class="card social-post">
     ${options.trending?`<div class="repost-context"><span class="engagement-label">🔥 ${engagement} engagement points</span>${options.rank?`<span>Trending #${options.rank}</span>`:''}</div>`:''}
     <div class="social-post-header"><img class="avatar" src="${esc(p.profiles?.avatar_url||EMPTY)}"><div style="flex:1"><button class="profile-link" data-profile-id="${p.user_id}"><strong>${esc(p.profiles?.full_name||'Member')} ${p.profiles?.is_verified?'<span class="verified">✓</span>':''}${p.profiles?.is_founder?'<span class="badge">Founder</span>':''}</strong></button><div class="muted">@${esc(p.profiles?.username||'member')} · ${formatRelativeTime(p.created_at)}</div></div><div style="display:flex;gap:6px;align-items:center">${options.showPin?(options.pinned?`<button class="secondary pin-control" data-unpin-profile-post="${p.id}">Pinned</button>`:`<button class="secondary pin-control" data-pin-profile-post="${p.id}">Pin</button>`):''}${user&&p.user_id===user.id?`<button class="secondary danger" data-delete-post="${p.id}">Delete</button>`:''}</div></div>
-    <div class="social-post-body">${p.content?`<p>${renderPostText(p.content)}</p>`:''}${p.link_url&&validHttpUrl(p.link_url)?`<a class="post-link" href="${esc(validHttpUrl(p.link_url))}" target="_blank" rel="noopener noreferrer"><strong>Open link ↗</strong><br>${esc(p.link_url)}</a>`:''}</div>
+    <div class="social-post-body">${p.content?`<p>${renderPostText(p.content)}</p>`:''}${p.link_url?renderLinkAttachment(p.link_url):''}</div>
     ${p.media_url?(p.media_type==='video'?`<video class="post-media" controls preload="metadata" src="${esc(p.media_url)}"></video>`:`<img class="post-media" loading="lazy" src="${esc(p.media_url)}" alt="Post media">`):''}
     <div class="post-actions">
       <button class="post-action ${liked?'active':''}" data-like="${p.id}" data-tooltip="Like this post and support the creator" aria-label="Like this post">
@@ -1350,7 +1478,7 @@ async function renderPublicProfileTab(member,tab,entries=[],pins=[],services=[])
 function renderFeaturedPost(p,isSelf){
   return `<article class="featured-post">
     ${p.media_url?(p.media_type==='video'?`<video class="featured-post-media" controls preload="metadata" src="${esc(p.media_url)}"></video>`:`<img class="featured-post-media" src="${esc(p.media_url)}" alt="Featured content">`):''}
-    <div class="featured-post-content"><span class="featured-label">📌 Featured</span>${p.content?`<p>${renderPostText(p.content)}</p>`:''}${p.link_url&&validHttpUrl(p.link_url)?`<a href="${esc(validHttpUrl(p.link_url))}" target="_blank" rel="noopener noreferrer">Open link ↗</a>`:''}${isSelf?`<button class="secondary pin-control" data-unpin-profile-post="${p.id}" style="margin-top:10px">Unpin</button>`:''}</div>
+    <div class="featured-post-content"><span class="featured-label">📌 Featured</span>${p.content?`<p>${renderPostText(p.content)}</p>`:''}${p.link_url?renderLinkAttachment(p.link_url):''}${isSelf?`<button class="secondary pin-control" data-unpin-profile-post="${p.id}" style="margin-top:10px">Unpin</button>`:''}</div>
   </article>`
 }
 function renderPortfolioEntries(entries,isSelf){
@@ -2648,7 +2776,7 @@ async function renderPublicHome(){
         </div>
       </div>
       ${p.content?`<div class="public-post-copy"><p>${publicPostText(p.content)}</p></div>`:''}
-      ${p.link_url&&validHttpUrl(p.link_url)?`<a class="public-post-link" href="${esc(validHttpUrl(p.link_url))}" target="_blank" rel="noopener noreferrer"><strong>Open shared link ↗</strong><br>${esc(p.link_url)}</a>`:''}
+      ${p.link_url?renderLinkAttachment(p.link_url):''}
       ${p.media_url?(p.media_type==='video'
         ?`<video class="public-post-media" controls playsinline preload="metadata" src="${esc(p.media_url)}"></video>`
         :`<img class="public-post-media" loading="lazy" src="${esc(p.media_url)}" alt="Creator content">`):''}

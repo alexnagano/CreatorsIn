@@ -1820,6 +1820,81 @@ body.guest-mode .side .identity{
   }
 }
 
+
+.inline-video-card{
+  width:100%;
+  margin-top:14px;
+  border:1px solid var(--line);
+  border-radius:18px;
+  overflow:hidden;
+  background:#fff;
+}
+.inline-video-frame{
+  position:relative;
+  width:100%;
+  aspect-ratio:16/9;
+  background:#080b12;
+  overflow:hidden;
+}
+.inline-video-frame iframe{
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  border:0;
+}
+.inline-video-vertical{
+  width:min(100%,430px);
+  aspect-ratio:9/16;
+  margin:0 auto;
+}
+.inline-video-source{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:11px 14px;
+  color:var(--blue2);
+  font-size:13px;
+  font-weight:800;
+  text-decoration:none;
+  background:#fff;
+}
+.inline-video-source:hover{background:var(--soft)}
+.inline-direct-video{
+  display:block;
+  width:100%;
+  max-height:650px;
+  background:#080b12;
+}
+.inline-video-skeleton{
+  min-height:360px;
+  display:grid;
+  place-items:center;
+  align-content:center;
+  gap:12px;
+  color:var(--muted);
+  font-weight:750;
+}
+.inline-video-spinner{
+  width:34px;
+  height:34px;
+  border-radius:50%;
+  border:3px solid var(--line);
+  border-top-color:var(--blue2);
+  animation:inlineVideoSpin .8s linear infinite;
+}
+@keyframes inlineVideoSpin{to{transform:rotate(360deg)}}
+.post-link-fallback{
+  margin-top:0!important;
+  border:0!important;
+  border-radius:0!important;
+}
+@media(max-width:600px){
+  .inline-video-card{border-radius:14px}
+  .inline-video-vertical{width:100%}
+  .inline-video-skeleton{min-height:300px}
+}
+
 </style>
 </head>
 <body>
