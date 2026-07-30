@@ -404,6 +404,7 @@ sb.auth.onAuthStateChange(async(event,session)=>{
 });
 
 validateAuthConfiguration();
+queueMediaActivation();
 
 async function ensureProfile(){
   if(!user?.id)throw new Error('No signed-in user was found.');
@@ -758,7 +759,7 @@ function renderLinkAttachment(url){
     const id=youtubeVideoId(safe);
     if(id)return `<div class="inline-video-card">
       <div class="inline-video-frame">
-        <iframe src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(id)}?playsinline=1"
+        <iframe src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(id)}?playsinline=1&rel=0&modestbranding=1&enablejsapi=1"
           title="YouTube video player" loading="lazy"
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
           allowfullscreen></iframe>
@@ -771,7 +772,7 @@ function renderLinkAttachment(url){
     const id=vimeoVideoId(safe);
     if(id)return `<div class="inline-video-card">
       <div class="inline-video-frame">
-        <iframe src="https://player.vimeo.com/video/${encodeURIComponent(id)}"
+        <iframe src="https://player.vimeo.com/video/${encodeURIComponent(id)}?dnt=1&title=0&byline=0&portrait=0"
           title="Vimeo video player" loading="lazy"
           allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe>
       </div>
@@ -781,7 +782,7 @@ function renderLinkAttachment(url){
 
   if(provider==='direct'){
     return `<div class="inline-video-card">
-      <video class="inline-direct-video" controls playsinline preload="metadata">
+      <video class="inline-direct-video" controls playsinline preload="metadata" controlslist="nodownload" disablepictureinpicture="false">
         <source src="${esc(safe)}">
       </video>
       <a class="inline-video-source" href="${esc(safe)}" target="_blank" rel="noopener noreferrer">Open video ↗</a>
@@ -835,6 +836,65 @@ async function hydrateVideoEmbeds(root=document){
     }
   }))
 }
+
+function prepareNativeVideos(root=document){
+  root.querySelectorAll('video').forEach(video=>{
+    video.setAttribute('playsinline','');
+    video.setAttribute('preload','metadata');
+    video.controls=true;
+
+    // Preserve the original uploaded file. Browsers automatically choose the
+    // best quality available from that source without CreatorsIn recompressing it.
+    if(!video.dataset.videoPrepared){
+      video.dataset.videoPrepared='true';
+      video.addEventListener('error',()=>{
+        video.classList.add('video-load-error')
+      },{once:true})
+    }
+  })
+}
+
+function activateMediaIn(root=document){
+  prepareNativeVideos(root);
+  hydrateVideoEmbeds(root).catch(error=>{
+    console.error('Video embed hydration failed:',error)
+  })
+}
+
+let mediaActivationQueued=false;
+function queueMediaActivation(){
+  if(mediaActivationQueued)return;
+  mediaActivationQueued=true;
+
+  requestAnimationFrame(()=>{
+    mediaActivationQueued=false;
+    activateMediaIn(document)
+  })
+}
+
+const mediaObserver=new MutationObserver(mutations=>{
+  if(mutations.some(mutation=>
+    [...mutation.addedNodes].some(node=>
+      node.nodeType===1&&(
+        node.matches?.('video,[data-video-embed],.inline-video-card')||
+        node.querySelector?.('video,[data-video-embed],.inline-video-card')
+      )
+    )
+  )){
+    queueMediaActivation()
+  }
+});
+
+mediaObserver.observe(document.documentElement,{
+  childList:true,
+  subtree:true
+});
+
+document.addEventListener('visibilitychange',()=>{
+  if(!document.hidden)queueMediaActivation()
+});
+
+window.addEventListener('pageshow',queueMediaActivation);
 
 async function feed(){
   await loadSocial();
@@ -1481,7 +1541,7 @@ async function renderPublicProfileTab(member,tab,entries=[],pins=[],services=[])
         <div class="profile-section-head"><div><h2>Deals, work & milestones</h2><p class="muted">A fun creator resume showing partnerships, roles, education, and achievements.</p></div>${isSelf?'<button class="primary" id="addPortfolioEntryBtn">Add experience</button>':''}</div>
         ${renderPortfolioEntries(entries,isSelf)}
       </section>`;
-    bindFeedActions();bindProfileLinks();bindProfilePinActions(member.id);bindServiceActions(member.id);
+    bindFeedActions();bindProfileLinks();bindProfilePinActions(member.id);activateMediaIn(box);bindServiceActions(member.id);
     $('#addPortfolioEntryBtn')?.addEventListener('click',()=>openPortfolioEntryEditor(member.id));
     $('#addServiceBtn')?.addEventListener('click',()=>openServiceEditor(member.id));
     $('#editAvailabilityBtn')?.addEventListener('click',()=>openAvailabilityEditor(member))
@@ -1497,7 +1557,8 @@ async function renderPublicProfileTab(member,tab,entries=[],pins=[],services=[])
   }else if(tab==='media'){
     const {data,error}=await sb.from('posts').select('id,media_url,media_type').eq('user_id',member.id).not('media_url','is',null).order('created_at',{ascending:false});
     if(error)return box.innerHTML=`<section class="card profile-empty"><p class="muted">${esc(error.message)}</p></section>`;
-    box.innerHTML=(data||[]).length?`<section class="card profile-section"><div class="profile-media-grid">${data.map(p=>p.media_type==='video'?`<video controls preload="metadata" src="${esc(p.media_url)}"></video>`:`<img loading="lazy" src="${esc(p.media_url)}" alt="Profile media">`).join('')}</div></section>`:`<section class="card profile-empty"><h2>No media yet</h2></section>`
+    box.innerHTML=(data||[]).length?`<section class="card profile-section"><div class="profile-media-grid">${data.map(p=>p.media_type==='video'?`<video controls preload="metadata" src="${esc(p.media_url)}"></video>`:`<img loading="lazy" src="${esc(p.media_url)}" alt="Profile media">`).join('')}</div></section>`:`<section class="card profile-empty"><h2>No media yet</h2></section>`;
+    activateMediaIn(box)
   }else if(tab==='experience'){
     box.innerHTML=`<section class="card profile-section"><div class="profile-section-head"><div><h2>Deals & resume</h2><p class="muted">Partnerships, roles, education, collaborations, and creator milestones.</p></div>${isSelf?'<button class="primary" id="addPortfolioEntryBtn">Add experience</button>':''}</div>${renderPortfolioEntries(entries,isSelf)}</section>`;
     $('#addPortfolioEntryBtn')?.addEventListener('click',()=>openPortfolioEntryEditor(member.id));
@@ -2882,6 +2943,22 @@ function installLaunchControls(){
   $('#sideCreateBtn')?.addEventListener('click',openCreateMenu);
   $('#guestHeaderSignup')?.addEventListener('click',()=>openAuthScreen('signup'));
   $('#guestHeaderLogin')?.addEventListener('click',()=>openAuthScreen('login'));
+
+  $$('[data-home-logo]').forEach(logo=>{
+    logo.addEventListener('click',event=>{
+      event.preventDefault();
+
+      if(user){
+        gate.classList.add('hidden');
+        setPage('feed');
+      }else{
+        history.pushState({page:'feed'},'','#/home');
+        routeFromLocation()
+      }
+
+      window.scrollTo({top:0,behavior:'smooth'})
+    })
+  });
   $('#sideCreatePostBtn')?.addEventListener('click',openCreateMenu);
   $('#sideMoreBtn')?.addEventListener('click',event=>{event.stopPropagation();toggleSideMoreMenu()});
   $('#sideSettingsBtn')?.addEventListener('click',()=>{toggleSideMoreMenu(false);openSettings()});

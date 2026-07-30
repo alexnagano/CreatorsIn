@@ -1912,12 +1912,89 @@ body.guest-mode .side .identity{
 @keyframes likeShake{0%,100%{transform:translateX(0)}25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
 @media(prefers-reduced-motion:reduce){[data-like],[data-like] [data-like-icon]{animation:none!important;transition:none!important}}
 
+
+/* Global media loading and interactive home logo */
+.home-logo-button{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding:0;
+  border:0;
+  background:transparent;
+  cursor:pointer;
+  border-radius:12px;
+  transition:transform .16s ease,opacity .16s ease,background .16s ease;
+}
+
+.home-logo-button:hover{
+  transform:translateY(-1px);
+  opacity:.88;
+}
+
+.home-logo-button:active{
+  transform:scale(.97);
+}
+
+.home-logo-button:focus-visible{
+  outline:3px solid rgba(37,130,246,.28);
+  outline-offset:5px;
+}
+
+.public-home-logo img{
+  display:block;
+  max-width:100%;
+}
+
+.inline-video-frame iframe,
+.profile-media-grid video,
+.featured-post-media,
+.social-post-media,
+.inline-direct-video{
+  image-rendering:auto;
+}
+
+.profile-media-grid video,
+.featured-post-media,
+.social-post-media,
+.inline-direct-video{
+  width:100%;
+  height:auto;
+  object-fit:contain;
+  background:#070a11;
+}
+
+.video-load-error{
+  min-height:220px;
+  background:
+    linear-gradient(135deg,rgba(15,23,42,.96),rgba(30,41,59,.96));
+}
+
+.inline-video-card{
+  content-visibility:auto;
+  contain-intrinsic-size:500px 700px;
+}
+
+.inline-video-frame iframe{
+  transform:translateZ(0);
+  backface-visibility:hidden;
+}
+
+@media(max-width:680px){
+  .inline-video-frame{
+    min-height:220px;
+  }
+
+  .inline-video-vertical{
+    max-height:78vh;
+  }
+}
+
 </style>
 </head>
 <body>
 <div class="public-home" id="authGate">
   <div class="public-topbar">
-    <img src="creatorsin-logo.png" alt="CreatorsIn">
+    <button class="home-logo-button public-home-logo" data-home-logo type="button" aria-label="Go to CreatorsIn home"><img src="creatorsin-logo.png" alt="CreatorsIn"></button>
     <div class="public-top-actions">
       <button class="secondary" id="publicLoginBtn">Log in</button>
       <button class="primary" id="publicSignupBtn">Join CreatorsIn</button>
@@ -1986,7 +2063,7 @@ body.guest-mode .side .identity{
   </div>
 </div>
 
-<header class="brand-header"><img class="logo" src="creatorsin-logo.png" alt="CreatorsIn"></header>
+<header class="brand-header"><button class="home-logo-button" data-home-logo type="button" aria-label="Go to CreatorsIn home"><img class="logo" src="creatorsin-logo.png" alt="CreatorsIn"></button></header>
 
 <div class="layout">
   <aside class="card side app-sidebar">
