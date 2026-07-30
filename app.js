@@ -971,13 +971,58 @@ function refreshPostSurface(){
 function bindFeedActions(){
   $$('[data-like]').forEach(b=>b.onclick=async()=>{
     if(!requireAccount('like'))return;
+
     const post_id=b.dataset.like;
-    const {data}=await sb.from('post_likes').select('post_id').eq('post_id',post_id).eq('user_id',user.id).maybeSingle();
-    const {error}=data
-      ?await sb.from('post_likes').delete().eq('post_id',post_id).eq('user_id',user.id)
-      :await sb.from('post_likes').insert({post_id,user_id:user.id});
-    if(error)return showToast(error.message);
-    refreshPostSurface()
+    const existing=postLikes.find(x=>x.post_id===post_id&&x.user_id===user.id);
+    const countElement=b.querySelector('[data-like-count]')||b.querySelector('span:last-child');
+    const previousCount=Number((countElement?.textContent||'0').replace(/[^\d]/g,''))||0;
+    const liking=!existing;
+
+    b.classList.toggle('liked',liking);
+    b.setAttribute('aria-pressed',String(liking));
+    b.classList.remove('like-pop');
+    void b.offsetWidth;
+    b.classList.add('like-pop');
+
+    if(countElement)countElement.textContent=String(Math.max(0,previousCount+(liking?1:-1)));
+
+    const heart=b.querySelector('[data-like-icon]')||b.querySelector('svg,span');
+    heart?.classList.remove('heart-burst');
+    void heart?.offsetWidth;
+    heart?.classList.add('heart-burst');
+
+    let optimisticLike=null;
+    if(liking){
+      optimisticLike={id:`optimistic-${post_id}-${user.id}`,post_id,user_id:user.id};
+      postLikes.push(optimisticLike)
+    }else{
+      postLikes=postLikes.filter(x=>!(x.post_id===post_id&&x.user_id===user.id))
+    }
+
+    b.disabled=true;
+
+    try{
+      if(existing){
+        const {error}=await sb.from('post_likes').delete().eq('id',existing.id);
+        if(error)throw error
+      }else{
+        const {data,error}=await sb.from('post_likes').insert({post_id,user_id:user.id}).select().single();
+        if(error)throw error;
+        const optimisticIndex=postLikes.findIndex(x=>x.id===optimisticLike?.id);
+        if(optimisticIndex>=0)postLikes[optimisticIndex]=data
+      }
+    }catch(error){
+      console.error('Could not update like:',error);
+      b.classList.toggle('liked',!!existing);
+      b.setAttribute('aria-pressed',String(!!existing));
+      if(countElement)countElement.textContent=String(previousCount);
+      if(existing)postLikes.push(existing);
+      else postLikes=postLikes.filter(x=>x.id!==optimisticLike?.id);
+      b.classList.add('like-error');
+      setTimeout(()=>b.classList.remove('like-error'),500)
+    }finally{
+      b.disabled=false
+    }
   });
   $$('[data-toggle-comments]').forEach(b=>b.onclick=()=>{if(!user)return requireAccount('comment');$('#comments-'+b.dataset.toggleComments).classList.toggle('hidden')});
   $$('[data-comment]').forEach(b=>b.onclick=async()=>{
