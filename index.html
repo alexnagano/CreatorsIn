@@ -2109,12 +2109,69 @@ header.brand-header > .home-logo-button > img.logo{
   }
 }
 
+
+/* Durable logo fix:
+   The logo is now an anchor, not a button, so legacy header button rules
+   cannot hide it. The image also uses an absolute root path. */
+header.brand-header > a.home-logo-button{
+  display:inline-flex!important;
+  align-items:center!important;
+  justify-content:flex-start!important;
+  visibility:visible!important;
+  opacity:1!important;
+  width:205px!important;
+  min-width:205px!important;
+  height:58px!important;
+  padding:0!important;
+  margin:0!important;
+  border:0!important;
+  background:transparent!important;
+  overflow:visible!important;
+  text-decoration:none!important;
+}
+
+header.brand-header > a.home-logo-button > img.logo{
+  display:block!important;
+  visibility:visible!important;
+  opacity:1!important;
+  width:205px!important;
+  min-width:205px!important;
+  max-width:205px!important;
+  height:auto!important;
+  max-height:58px!important;
+  object-fit:contain!important;
+  object-position:left center!important;
+}
+
+.public-topbar > a.public-home-logo{
+  display:inline-flex!important;
+  align-items:center!important;
+  visibility:visible!important;
+  opacity:1!important;
+  text-decoration:none!important;
+}
+
+@media(max-width:760px){
+  header.brand-header > a.home-logo-button{
+    width:155px!important;
+    min-width:155px!important;
+    height:48px!important;
+  }
+
+  header.brand-header > a.home-logo-button > img.logo{
+    width:155px!important;
+    min-width:155px!important;
+    max-width:155px!important;
+    max-height:48px!important;
+  }
+}
+
 </style>
 </head>
 <body>
 <div class="public-home" id="authGate">
   <div class="public-topbar">
-    <button class="home-logo-button public-home-logo" data-home-logo type="button" aria-label="Go to CreatorsIn home"><img class="public-logo-image" src="creatorsin-logo.png" alt="CreatorsIn"></button>
+    <a class="home-logo-button public-home-logo" data-home-logo href="/#/home" aria-label="Go to CreatorsIn home"><img class="public-logo-image" src="/creatorsin-logo.png" alt="CreatorsIn"></a>
     <div class="public-top-actions">
       <button class="secondary" id="publicLoginBtn">Log in</button>
       <button class="primary" id="publicSignupBtn">Join CreatorsIn</button>
@@ -2183,7 +2240,7 @@ header.brand-header > .home-logo-button > img.logo{
   </div>
 </div>
 
-<header class="brand-header"><button class="home-logo-button" data-home-logo type="button" aria-label="Go to CreatorsIn home"><img class="logo" src="creatorsin-logo.png" alt="CreatorsIn"></button></header>
+<header class="brand-header"><a class="home-logo-button" data-home-logo href="/#/home" aria-label="Go to CreatorsIn home"><img class="logo" src="/creatorsin-logo.png" alt="CreatorsIn"></a></header>
 
 <div class="layout">
   <aside class="card side app-sidebar">
