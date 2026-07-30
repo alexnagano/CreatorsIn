@@ -1989,12 +1989,74 @@ body.guest-mode .side .identity{
   }
 }
 
+
+/* Logo visibility repair */
+.brand-header .home-logo-button{
+  width:205px!important;
+  min-width:205px!important;
+  height:58px!important;
+  flex:0 0 205px!important;
+  overflow:visible!important;
+}
+
+.brand-header .home-logo-button .logo{
+  display:block!important;
+  width:205px!important;
+  max-width:205px!important;
+  height:auto!important;
+  max-height:58px!important;
+  object-fit:contain!important;
+  object-position:left center!important;
+  opacity:1!important;
+  visibility:visible!important;
+}
+
+.public-home-logo{
+  width:205px!important;
+  min-width:205px!important;
+  height:58px!important;
+  flex:0 0 205px!important;
+}
+
+.public-logo-image{
+  display:block!important;
+  width:205px!important;
+  max-width:205px!important;
+  height:auto!important;
+  max-height:58px!important;
+  object-fit:contain!important;
+  object-position:left center!important;
+  opacity:1!important;
+  visibility:visible!important;
+}
+
+[data-like][data-like-busy="true"]{
+  pointer-events:none;
+}
+
+@media(max-width:760px){
+  .brand-header .home-logo-button,
+  .public-home-logo{
+    width:155px!important;
+    min-width:155px!important;
+    height:48px!important;
+    flex-basis:155px!important;
+  }
+
+  .brand-header .home-logo-button .logo,
+  .public-logo-image{
+    width:155px!important;
+    max-width:155px!important;
+    max-height:48px!important;
+  }
+}
+
 </style>
 </head>
 <body>
 <div class="public-home" id="authGate">
   <div class="public-topbar">
-    <button class="home-logo-button public-home-logo" data-home-logo type="button" aria-label="Go to CreatorsIn home"><img src="creatorsin-logo.png" alt="CreatorsIn"></button>
+    <button class="home-logo-button public-home-logo" data-home-logo type="button" aria-label="Go to CreatorsIn home"><img class="public-logo-image" src="creatorsin-logo.png" alt="CreatorsIn"></button>
     <div class="public-top-actions">
       <button class="secondary" id="publicLoginBtn">Log in</button>
       <button class="primary" id="publicSignupBtn">Join CreatorsIn</button>
