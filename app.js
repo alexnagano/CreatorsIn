@@ -996,24 +996,32 @@ function renderSocialPost(p,likes=[],comments=[],reposts=[],options={}){
     <div class="social-post-body">${p.content?`<p>${renderPostText(p.content)}</p>`:''}${p.link_url?renderLinkAttachment(p.link_url):''}</div>
     ${p.media_url?(p.media_type==='video'?`<video class="post-media" controls preload="metadata" src="${esc(p.media_url)}"></video>`:`<img class="post-media" loading="lazy" src="${esc(p.media_url)}" alt="Post media">`):''}
     <div class="post-actions">
-      <button class="post-action ${liked?'active liked':''}" data-like="${p.id}" data-liked="${liked?'true':'false'}" data-tooltip="Like this post and support the creator" aria-label="${liked?'Unlike':'Like'} this post" aria-pressed="${liked}">
-        <span class="post-action-icon" data-like-icon>${liked?'♥':'♡'}</span>
+      <button class="post-action post-action-like ${liked?'active liked':''}" data-like="${p.id}" data-liked="${liked?'true':'false'}" aria-label="${liked?'Unlike':'Like'} this post" aria-pressed="${liked}">
+        <span class="post-action-icon" data-like-icon aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M12 20.25s-7.5-4.35-7.5-10.2A4.3 4.3 0 0 1 12 7.15a4.3 4.3 0 0 1 7.5 2.9c0 5.85-7.5 10.2-7.5 10.2Z"/></svg>
+        </span>
         <span class="post-action-count" data-like-count>${postLikes.length}</span>
         <span class="post-action-label">Like</span>
       </button>
-      <button class="post-action" data-toggle-comments="${p.id}" data-tooltip="Comment and join the conversation" aria-label="Comment on this post">
-        <span class="post-action-icon">↩</span>
+      <button class="post-action post-action-comment" data-toggle-comments="${p.id}" aria-label="Comment on this post">
+        <span class="post-action-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M20 11.5a7.5 7.5 0 0 1-8 7.48 8.7 8.7 0 0 1-3.45-.92L4 19.5l1.45-4.05A7.5 7.5 0 1 1 20 11.5Z"/></svg>
+        </span>
         <span class="post-action-count">${postComments.length}</span>
         <span class="post-action-label">Comment</span>
       </button>
-      <button class="post-action ${reposted?'reposted':''}" data-repost="${p.id}" data-tooltip="Repost this content to help it reach more people" aria-label="Repost this post">
-        <span class="post-action-icon">⟳</span>
+      <button class="post-action post-action-repost ${reposted?'reposted':''}" data-repost="${p.id}" aria-label="Repost this post" aria-pressed="${reposted}">
+        <span class="post-action-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="m7 7 3-3m0 0L7 1m3 3H6a3 3 0 0 0-3 3v3m14 7-3 3m0 0 3 3m-3-3h4a3 3 0 0 0 3-3v-3M6 17h8M18 7H10"/></svg>
+        </span>
         <span class="post-action-count">${postReposts.length}</span>
         <span class="post-action-label">Repost</span>
       </button>
-      <button class="post-action" data-copy-post="${p.id}" data-tooltip="Copy a shareable link to this post" aria-label="Share this post">
-        <span class="post-action-icon">↗</span>
-        <span class="post-action-count">Share</span>
+      <button class="post-action post-action-share" data-copy-post="${p.id}" aria-label="Share this post">
+        <span class="post-action-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M12 16V3m0 0L7.5 7.5M12 3l4.5 4.5M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>
+        </span>
+        <span class="post-action-count post-action-share-text">Share</span>
         <span class="post-action-label">Share</span>
       </button>
     </div>
@@ -1029,6 +1037,16 @@ function refreshPostSurface(){
   else renderTimeline(document.querySelector('[data-feed-filter].active')?.dataset.feedFilter||'for-you')
 }
 function bindFeedActions(){
+  $$('.post-action').forEach(button=>{
+    if(button.dataset.motionReady==='true')return;
+    button.dataset.motionReady='true';
+    button.addEventListener('pointerdown',()=>{
+      button.classList.remove('action-press');
+      void button.offsetWidth;
+      button.classList.add('action-press');
+      setTimeout(()=>button.classList.remove('action-press'),260)
+    })
+  });
   $$('[data-like]').forEach(b=>b.onclick=async()=>{
     if(!requireAccount('like'))return;
     if(b.dataset.likeBusy==='true')return;
@@ -1050,7 +1068,6 @@ function bindFeedActions(){
     b.setAttribute('aria-label',`${nextLiked?'Unlike':'Like'} this post`);
 
     if(countElement)countElement.textContent=String(nextCount);
-    if(iconElement)iconElement.textContent=nextLiked?'♥':'♡';
 
     b.classList.remove('like-pop','like-error');
     iconElement?.classList.remove('heart-burst');
@@ -1083,7 +1100,6 @@ function bindFeedActions(){
       b.setAttribute('aria-label',`${wasLiked?'Unlike':'Like'} this post`);
 
       if(countElement)countElement.textContent=String(previousCount);
-      if(iconElement)iconElement.textContent=wasLiked?'♥':'♡';
 
       b.classList.add('like-error');
       setTimeout(()=>b.classList.remove('like-error'),500)

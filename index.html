@@ -2166,6 +2166,210 @@ header.brand-header > a.home-logo-button > img.logo{
   }
 }
 
+
+/* Professional post interactions */
+.post-actions{
+  display:grid!important;
+  grid-template-columns:repeat(4,minmax(0,1fr))!important;
+  gap:4px!important;
+  padding:8px 10px!important;
+  margin-top:14px!important;
+  border-top:1px solid var(--line)!important;
+}
+
+.post-action{
+  position:relative!important;
+  display:flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  gap:7px!important;
+  min-width:0!important;
+  min-height:42px!important;
+  padding:8px 10px!important;
+  border:0!important;
+  border-radius:12px!important;
+  background:transparent!important;
+  color:var(--muted)!important;
+  font:inherit!important;
+  font-size:14px!important;
+  font-weight:650!important;
+  line-height:1!important;
+  cursor:pointer!important;
+  overflow:hidden!important;
+  isolation:isolate!important;
+  transition:
+    color .18s ease,
+    background-color .18s ease,
+    transform .16s cubic-bezier(.2,.8,.2,1)!important;
+  -webkit-tap-highlight-color:transparent!important;
+}
+
+.post-action::before{
+  content:""!important;
+  position:absolute!important;
+  inset:0!important;
+  border-radius:inherit!important;
+  background:currentColor!important;
+  opacity:0!important;
+  transform:scale(.82)!important;
+  z-index:-1!important;
+  transition:opacity .18s ease,transform .22s ease!important;
+}
+
+.post-action:hover{
+  transform:none!important;
+  color:var(--text)!important;
+}
+
+.post-action:hover::before{
+  opacity:.065!important;
+  transform:scale(1)!important;
+}
+
+.post-action:active,
+.post-action.action-press{
+  transform:scale(.965)!important;
+}
+
+.post-action:focus-visible{
+  outline:2px solid var(--blue)!important;
+  outline-offset:2px!important;
+}
+
+.post-action-icon{
+  display:inline-flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  width:21px!important;
+  height:21px!important;
+  flex:0 0 21px!important;
+  font-size:0!important;
+  transform:none!important;
+  transition:transform .2s cubic-bezier(.2,.8,.2,1)!important;
+}
+
+.post-action-icon svg{
+  display:block!important;
+  width:100%!important;
+  height:100%!important;
+  overflow:visible!important;
+  fill:none!important;
+  stroke:currentColor!important;
+  stroke-width:1.9!important;
+  stroke-linecap:round!important;
+  stroke-linejoin:round!important;
+}
+
+.post-action:hover .post-action-icon{
+  transform:scale(1.06)!important;
+}
+
+.post-action-count,
+.post-action-label{
+  display:inline!important;
+  min-width:0!important;
+  font-size:13px!important;
+  font-weight:650!important;
+  white-space:nowrap!important;
+}
+
+.post-action-label{
+  display:none!important;
+}
+
+/* Remove the large particle ring and old tooltip behavior */
+.post-action[data-tooltip]::after,
+.post-action[data-tooltip]::before,
+[data-like].liked::after{
+  display:none!important;
+  content:none!important;
+  animation:none!important;
+  box-shadow:none!important;
+}
+
+.post-action-like.liked{
+  color:#f91880!important;
+  background:rgba(249,24,128,.08)!important;
+}
+
+.post-action-like.liked .post-action-icon svg{
+  fill:currentColor!important;
+  stroke:currentColor!important;
+}
+
+.post-action-like.like-pop{
+  animation:none!important;
+}
+
+.post-action-like.like-pop .post-action-icon,
+.post-action-like .post-action-icon.heart-burst{
+  animation:cleanHeartPop .32s cubic-bezier(.2,.9,.25,1.35)!important;
+}
+
+.post-action-comment:hover{
+  color:#1d9bf0!important;
+}
+
+.post-action-repost.reposted{
+  color:#00ba7c!important;
+  background:rgba(0,186,124,.08)!important;
+}
+
+.post-action-repost.reposted .post-action-icon{
+  animation:cleanRepost .32s cubic-bezier(.2,.8,.2,1)!important;
+}
+
+.post-action-share:hover{
+  color:#1d9bf0!important;
+}
+
+@keyframes cleanHeartPop{
+  0%{transform:scale(.78)}
+  55%{transform:scale(1.24)}
+  100%{transform:scale(1)}
+}
+
+@keyframes cleanRepost{
+  0%{transform:rotate(-12deg) scale(.9)}
+  100%{transform:rotate(0) scale(1)}
+}
+
+@media(max-width:760px){
+  .post-actions{
+    padding:7px 4px!important;
+    gap:1px!important;
+  }
+
+  .post-action{
+    min-height:40px!important;
+    padding:7px 5px!important;
+    gap:5px!important;
+  }
+
+  .post-action-icon{
+    width:20px!important;
+    height:20px!important;
+    flex-basis:20px!important;
+  }
+
+  .post-action-count{
+    font-size:12px!important;
+  }
+
+  .post-action-share-text{
+    display:none!important;
+  }
+}
+
+@media(prefers-reduced-motion:reduce){
+  .post-action,
+  .post-action::before,
+  .post-action-icon{
+    transition:none!important;
+    animation:none!important;
+  }
+}
+
 </style>
 </head>
 <body>
